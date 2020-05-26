@@ -6,6 +6,9 @@ DIR=/root/tmp; mkdir -p $DIR
 exec > $DIR/user-data.op 2>&1
 env # Before sensitive values !!
 
+# For testing:
+# export PRIVATE_IP=$(ec2metadata --local-ipv4) PUBLIC_IP=$(ec2metadata --public-ipv4)
+
 export CLASSID="__CLASSID__" ORG_ID="__ORG_ID__" API_KEY="__API_KEY__" OWNER_ID_OR_EMAIL="__OWNER_ID_OR_EMAIL__"
 export PRISMA_PCC_ACCESS="__PRISMA_PCC_ACCESS__" REGISTER_URL="__REGISTER_URL__"
 
