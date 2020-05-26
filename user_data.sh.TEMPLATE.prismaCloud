@@ -1,29 +1,72 @@
 #!/bin/bash
 
-REPO_URL=https://github.com/mjbright/strigo-scripts
 DIR=/root/tmp; mkdir -p $DIR
 
 exec > $DIR/user-data.op 2>&1
 env # Before sensitive values !!
 
-export CLASSID="__CLASSID__" ORG_ID="__ORG_ID__" API_KEY="__API_KEY__" OWNER_ID_OR_EMAIL="__OWNER_ID_OR_EMAIL__"
-export PRISMA_PCC_ACCESS="__PRISMA_PCC_ACCESS__" REGISTER_URL="__REGISTER_URL__"
+# For testing:
+# export PRIVATE_IP=$(ec2metadata --local-ipv4) PUBLIC_IP=$(ec2metadata --public-ipv4)
 
-cd /root/; git clone $REPO_URL
-cd strigo-scripts; cp -a *.sh *.py /tmp
+export CLASSID="__CLASSID__" ORG_ID="__ORG_ID__" API_KEY="__API_KEY__" OWNER_ID_OR_EMAIL="__OWNER_ID_OR_EMAIL__"
+export PRISMA_PCC_ACCESS="__PRISMA_ACCESS_KEY__" REGISTER_URL="__REGISTER_URL__"
+
+KUBE_PKGS="kubeadm=1.18.1-00 kubelet=1.18.1-00 kubectl=1.18.1-00"
+K8S_RELEASE="1.18.1"
+LFS_TAR="LFS458/LFS458_V${RELEASE}_SOLUTIONS.tar.bz2"
+LOGIN="--user=LFtraining --password=Penguin2014"
+LFS_TAR_URL="https://training.linuxfoundation.org/cm/LFS458/${LFS_TAR}"
+LFS_TAR_PATH="/tmp/${LFS_TAR}"
+
+cd /root
+
+die() { echo "$0: die - $*" >&2; exit 1; }
+
+TESTING_INSTALL() {
+    apt-get install -y $KUBE_PKGS vim docker.io
+    modprobe overlay; modprobe br_netfilter
+    echo "deb http://apt.kubernetes.io/ kubernetes-xenial main" |
+        tee /etc/apt/sources.list.d/kubernetes.list
+    wget -O calico.yaml https://docs.projectcalico.org/manifests/calico.yaml
+}
+
+GET_BITS() {
+    wget $LOGIN -O $LFS_TAR_URL $LFS_TAR_PATH
+}
+
+UNINSTALL_BITS() {
+    apt-get remove -y kubeadm kubectl kubelet vim docker.io
+    rm -f /etc/apt/sources.list.d/kubernetes.list
+}
+
+if [ "$1" = "-testing" ];then
+    TESTING_INSTALL
+    GET_BITS
+else
+    UNINSTALL_BITS
+    GET_BITS
+fi
 
 export INSTALL_KUBELAB=1
 export DOWNLOAD_PCC_TWISTLOCK=1
 export INSTALL_PCC_TWISTLOCK=1
 
 # To force a specific version, e.g. "stable-1" or "v1.18.2" set to version here and set UPGRADE_KUBE_LATEST=1
-export K8S_RELEASE="v1.18.2" UPGRADE_KUBE_LATEST=1 K8S_INSTALLER="kubeadm"
+export K8S_RELEASE="v1.18.2"
+export UPGRADE_KUBE_LATEST=0
+export K8S_INSTALLER="kubeadm"
+export INSTALL_KUBERNETES=0
 export TWISTLOCK_PCC_RELEASE=20_04_163
-export INSTALL_TERRAFORM=1 INSTALL_HELM=1
+export INSTALL_TERRAFORM=0
+export INSTALL_HELM=1
+export NUM_NODES=4 # Must match !!
 
-export NUM_NODES=2 # Must match !!
-export NODE_NAMES="master worker1"
-export USERS="ubuntu:sudo"
-#export USERS="student:sudo"
+BOOT_SETUP_SH=setup_k8s_at_boot.sh
+wget -qO $DIR/$BOOT_SETUP_SH \
+    https://raw.githubusercontent.com/mjbright/strigo-scripts/master/setup_k8s_at_boot.sh
+wget -qO $DIR/get_workspaces_info.py \
+    https://raw.githubusercontent.com/mjbright/strigo-scripts/master/get_workspaces_info.py
 
-/tmp/setup_k8s_at_boot.sh
+chmod +x $DIR/$BOOT_SETUP_SH $DIR/get_workspaces_info.py
+#bash -x $DIR/$BOOT_SETUP_SH
+
