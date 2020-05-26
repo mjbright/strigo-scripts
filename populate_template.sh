@@ -1,12 +1,13 @@
 #!/bin/bash
 
-#IP_TEMPLATE=user_data.sh.TEMPLATE
-#OP_PRIVATE=user_data.sh.PRIVATE
+## -- functions: ------------------------------------------------
 
 die() {
     echo "$0: die - $*" >&2
     exit 1
 }
+
+## -- arguments: ------------------------------------------------
 
 [ -z "$1"   ] && die "Usage: $0 <rcfile>"
 [ ! -f "$1" ] && die "Usage: No such rcfile as <$1>"
@@ -15,6 +16,8 @@ die() {
 
 [ -z "$IP_TEMPLATE" ] && die "Input IP_TEMPLATE file unset"
 [ -z "$OP_PRIVATE" ]  && die "Output OP_PRIVATE file unset"
+
+## -- main: -----------------------------------------------------
 
 VARS="CLASSID ORG_ID API_KEY OWNER_ID_OR_EMAIL PRISMA_PCC_ACCESS REGISTER_URL"
 
