@@ -1,5 +1,8 @@
 #!/bin/bash
 
+#IP_TEMPLATE=user_data.sh.TEMPLATE
+#OP_PRIVATE=user_data.sh.PRIVATE
+
 die() {
     echo "$0: die - $*" >&2
     exit 1
@@ -9,6 +12,9 @@ die() {
 [ ! -f "$1" ] && die "Usage: No such rcfile as <$1>"
 
 . $1
+
+[ -z "$IP_TEMPLATE" ] && die "Input IP_TEMPLATE file unset"
+[ -z "$OP_PRIVATE" ]  && die "Output OP_PRIVATE file unset"
 
 VARS="CLASSID ORG_ID API_KEY OWNER_ID_OR_EMAIL PRISMA_PCC_ACCESS REGISTER_URL"
 
@@ -25,11 +31,21 @@ for VAR in $VARS; do
     CMD+=" -e 's?__${VAR}__?$VAL?'"
 done
 
+echo
 echo $CMD
 
-eval $CMD < user_data.sh.TEMPLATE > user_data.sh.PRIVATE
-grep __ user_data.sh.PRIVATE && die "ERROR: variable not replaced"
-diff        user_data.sh.TEMPLATE   user_data.sh.PRIVATE
+echo
+echo "sed '<commands>' < $IP_TEMPLATE > $OP_PRIVATE"
+
+echo
+eval $CMD < $IP_TEMPLATE > $OP_PRIVATE
+grep __ $OP_PRIVATE && die "ERROR: variable not replaced"
+
+echo
+diff        $IP_TEMPLATE   $OP_PRIVATE
+
+echo
+ls -altr $IP_TEMPLATE $OP_PRIVATE
 exit 0
 
 > export CLASSID="__CLASSID__"

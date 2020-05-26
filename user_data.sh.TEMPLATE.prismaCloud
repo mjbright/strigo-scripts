@@ -1,0 +1,29 @@
+#!/bin/bash
+
+REPO_URL=https://github.com/mjbright/strigo-scripts
+DIR=/root/tmp; mkdir -p $DIR
+
+exec > $DIR/user-data.op 2>&1
+env # Before sensitive values !!
+
+export CLASSID="__CLASSID__" ORG_ID="__ORG_ID__" API_KEY="__API_KEY__" OWNER_ID_OR_EMAIL="__OWNER_ID_OR_EMAIL__"
+export PRISMA_PCC_ACCESS="__PRISMA_PCC_ACCESS__" REGISTER_URL="__REGISTER_URL__"
+
+cd /root/; git clone $REPO_URL
+cd strigo-scripts; cp -a *.sh *.py /tmp
+
+export INSTALL_KUBELAB=1
+export DOWNLOAD_PCC_TWISTLOCK=1
+export INSTALL_PCC_TWISTLOCK=1
+
+# To force a specific version, e.g. "stable-1" or "v1.18.2" set to version here and set UPGRADE_KUBE_LATEST=1
+export K8S_RELEASE="v1.18.2" UPGRADE_KUBE_LATEST=1 K8S_INSTALLER="kubeadm"
+export TWISTLOCK_PCC_RELEASE=20_04_163
+export INSTALL_TERRAFORM=1 INSTALL_HELM=1
+
+export NUM_NODES=2 # Must match !!
+export NODE_NAMES="master worker1"
+export USERS="ubuntu:sudo"
+#export USERS="student:sudo"
+
+/tmp/setup_k8s_at_boot.sh
