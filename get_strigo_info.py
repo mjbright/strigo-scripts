@@ -90,7 +90,8 @@ def getMyWorkSpaceDetails( eventId ):
 
         owner=ws_data['owner']
         owner_id=owner['id']
-        if VERBOSE: print(f"ownerId={owner_id}")
+        owner_email=owner['email']
+        if VERBOSE: print(f"ownerId={owner_id} ownerEMail={owner_email}")
 
         url = f"https://app.strigo.io/api/v1/events/{eventId}/workspaces/{workspaceId}/resources"
         workspace = requests.get(url, headers=headers).json()
@@ -113,19 +114,19 @@ def getMyWorkSpaceDetails( eventId ):
                     print(f"-- public_ip={public_ip}")
 
         if myWorkspace:
-            return ( owner_id, workspaceId, workspacePrivateIps, workspacePublicIps )
+            return ( owner_id, owner_email, workspaceId, workspacePrivateIps, workspacePublicIps )
 
     # PRIVATE_IP=os.getenv('PRIVATE_IP')
     #return res.json()
-    return ( None, None, None, None )
+    return ( None, None, None, None, None )
 
 def getNumberOfNodes( eventId ):
-    ( ownerId, workspaceId, workspacePrivateIps, workspacePublicIps ) = \
+    ( ownerId, ownerEmail, workspaceId, workspacePrivateIps, workspacePublicIps ) = \
         getMyWorkSpaceDetails( eventId )
     return len(workspacePrivateIps)
 
 def getMyNodeIndex( eventId ):
-    ( ownerId, workspaceId, workspacePrivateIps, workspacePublicIps ) = \
+    ( ownerId, ownerEmail, workspaceId, workspacePrivateIps, workspacePublicIps ) = \
         getMyWorkSpaceDetails( eventId )
 
     for idx in range(len(workspacePrivateIps)):
@@ -144,21 +145,21 @@ while len(sys.argv) > 0:
     if arg == '-v':
         VERBOSE=True
 
-    if arg == '-o':
+    if arg == '-o': # Specify owner_id or owner_email to use
         arg=sys.argv[0]; sys.argv=sys.argv[1:]
         OWNER_ID_OR_EMAIL=arg
 
-    if arg == '-e':
+    if arg == '-e': # Return event_id of current event
         eventId = getMyEventField( OWNER_ID_OR_EMAIL )
         #print(f"eventId={eventId}")
         print(eventId)
 
-    if arg == '-c':
+    if arg == '-c': # Return class_id of current event
         classId = getMyEventField( OWNER_ID_OR_EMAIL, field='class_id' )
         #print(f"classId={classId}")
         print(classId)
 
-    if arg == '-W':
+    if arg == '-W': # Return workspace_id's of all workspaces
         eventId = getMyEventField( OWNER_ID_OR_EMAIL )
         if VERBOSE: print(f"eventId={eventId}")
         workspaces = getEventWorkspaces( eventId )
@@ -166,24 +167,31 @@ while len(sys.argv) > 0:
         for w in workspaces['data']:
             print(w['id'])
 
-    if arg == '-oid':
+    if arg == '-w': # Return workspace_id of current workspace (this student or owner)
         eventId = getMyEventField( OWNER_ID_OR_EMAIL )
         if VERBOSE: print(f"eventId={eventId}")
-        ( ownerId, workspaceId, workspacePrivateIps, workspacePublicIps ) = \
-            getMyWorkSpaceDetails( eventId )
-        print(ownerId)
-
-    if arg == '-w':
-        eventId = getMyEventField( OWNER_ID_OR_EMAIL )
-        if VERBOSE: print(f"eventId={eventId}")
-        ( ownerId, workspaceId, workspacePrivateIps, workspacePublicIps ) = \
+        ( ownerId, ownerEmail, workspaceId, workspacePrivateIps, workspacePublicIps ) = \
             getMyWorkSpaceDetails( eventId )
         print(workspaceId)
 
-    if arg == '-ips':
+    if arg == '-oid': # Return owner_id of current workspace (this student or owner)
         eventId = getMyEventField( OWNER_ID_OR_EMAIL )
         if VERBOSE: print(f"eventId={eventId}")
-        ( ownerId, workspaceId, workspacePrivateIps, workspacePublicIps ) = \
+        ( ownerId, ownerEmail, workspaceId, workspacePrivateIps, workspacePublicIps ) = \
+            getMyWorkSpaceDetails( eventId )
+        print(ownerId)
+
+    if arg == '-oem': # Return owner_email of current workspace (this student or owner)
+        eventId = getMyEventField( OWNER_ID_OR_EMAIL )
+        if VERBOSE: print(f"eventId={eventId}")
+        ( ownerId, ownerEmail, workspaceId, workspacePrivateIps, workspacePublicIps ) = \
+            getMyWorkSpaceDetails( eventId )
+        print(ownerEMail)
+
+    if arg == '-ips': # Return ips of VMs of current workspace (this student or owner)
+        eventId = getMyEventField( OWNER_ID_OR_EMAIL )
+        if VERBOSE: print(f"eventId={eventId}")
+        ( ownerId, ownerEmail, workspaceId, workspacePrivateIps, workspacePublicIps ) = \
             getMyWorkSpaceDetails( eventId )
 
         if len(sys.argv) > 0:
@@ -194,13 +202,13 @@ while len(sys.argv) > 0:
         print( workspacePrivateIps, workspacePublicIps )
         sys.exit(0)
 
-    if arg == '-idx':
+    if arg == '-idx': # Get index of the current VM e.g. so that 1 is Master, 2 is Slave etc ...
         eventId = getMyEventField( OWNER_ID_OR_EMAIL )
         if VERBOSE: print(f"eventId={eventId}")
         idx = getMyNodeIndex( eventId )
         print(idx)
 
-    if arg == '-nodes':
+    if arg == '-nodes': # Get number of nodes/VMs for the current student workspace
         eventId = getMyEventField( OWNER_ID_OR_EMAIL )
         if VERBOSE: print(f"eventId={eventId}")
         nodes = getNumberOfNodes( eventId )
