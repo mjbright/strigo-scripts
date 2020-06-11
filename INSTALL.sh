@@ -2,38 +2,19 @@
 
 SCRIPT_DIR=$(dirname $0)
 
-export UPGRADE_KUBE_LATEST=0
-export UPGRADE_KUBE_LATEST=1
-[ -z "$INSTALL_KUBERNETES" ] && export INSTALL_KUBERNETES=1
+# Take defaults on apt-get commands:
+export DEBIAN_FRONTEND=noninteractive
 
-export TWISTLOCK_PCC_RELEASE=20_04_163
-
-# To force a specific version, e.g. "stable-1" or "v1.18.2" set to version here and set UPGRADE_KUBE_LATEST=1
-export K8S_RELEASE="v1.18.2"
-
-export K8S_INSTALLER="kubeadm"
-
-# Terraform
-export INSTALL_TERRAFORM=1
-
-# Helm
-export INSTALL_HELM=1
-
-KUBERNETES_VERSION="--kubernetes-version $K8S_RELEASE"
-[ $UPGRADE_KUBE_LATEST -eq 1 ] && KUBERNETES_VERSION="--kubernetes-version $(kubeadm version -o short)"
-
-INSTALL_PCC_SH_URL=https://raw.githubusercontent.com/mjbright/strigo-scripts/master/install_pcc.sh
-#https://cdn.twistlock.com/releases/6e6c2d6a/prisma_cloud_compute_edition_20_04_163.tar.gz
-export PRISMA_PCC_ACCESS
-export PRISMA_PCC_TAR="/tmp/prisma_cloud_compute_edition_${TWISTLOCK_PCC_RELEASE}.tar.gz"
-export PRISMA_PCC_URL="https://cdn.twistlock.com/releases/6e6c2d6a/prisma_cloud_compute_edition_${TWISTLOCK_PCC_RELEASE}.tar.gz"
+sudo mv $(readlink -f /var/lib/cloud/instance) /root/tmp/instance/
 
 CNI_YAMLS="https://docs.projectcalico.org/manifests/calico.yaml"
 POD_CIDR="192.168.0.0/16"
 
 SECTION_LOG=/tmp/SECTION.log
+EVENT_LOG=/root/tmp/event.log
 
-NUM_MASTERS=1
+[   -f ${SECTION_LOG}         ] && cp -a $SECTION_LOG ${SECTION_LOG}.$(date +'%Y-%m-%d_%H-%M-%S')
+[ ! -f ${SECTION_LOG}.initial ] && [ -f $SECTION_LOG ] && mv $SECTION_LOG ${SECTION_LOG}.initial
 
 #export PRIVATE_IP=$(hostname -i)
 export PRIVATE_IP=$(ec2metadata --local-ipv4)
@@ -46,24 +27,37 @@ export NODE_NAME="unset"
 #BIN=/root/bin
 BIN=/usr/local/bin
 
-[ $INSTALL_PCC_TWISTLOCK -eq 0 ] &&
-    [ ! -z "$PRISMA_PCC_ACCESS" ] && echo "export PRISMA_PCC_ACCESS=$PRISMA_PCC_ACCESS" >> /root/.profile
+. $SCRIPT_DIR/INSTALL_PROFILES.fn.rc
 
-cat >> /root/.profile <<EOF
+INIT_PROFILE_HISTORY() {
+    cat >> /root/.profile <<EOF
 export HOME=/root
 export PATH=~/bin:$PATH
 EOF
 
-cat > /root/.jupyter.profile <<EOF
+    cat > /root/.jupyter.profile <<EOF
 export HOME=/root
 export PATH=~/bin:$PATH
 EOF
 
-echo 'watch -n 2 "kubectl get nodes; echo; kubectl get ns; echo; kubectl -n kubelab -o wide get cm,pods"' >> /home/ubuntu/.bash_history
-echo 'watch -n 2 "kubectl get nodes; echo; kubectl get ns; echo; kubectl -n kubelab -o wide get cm,pods"' >> /root/.bash_history
-echo '. /root/.jupyter.profile; cd; echo HOME=$HOME' >> /root/.bash_history
+    #echo 'watch -n 2 "kubectl get nodes; echo; kubectl get ns; echo; kubectl -n kubelab -o wide get cm,pods"' >> /home/ubuntu/.bash_history
+    #echo 'watch -n 2 "kubectl get nodes; echo; kubectl get ns; echo; kubectl -n kubelab -o wide get cm,pods"' >> /root/.bash_history
+    echo '. /root/.jupyter.profile; cd; echo HOME=$HOME' >> /root/.bash_history
+    echo 'kubectl get nodes' >> /home/ubuntu/.bash_history
+    echo 'tail -100f /tmp/SECTION.log' >> /home/ubuntu/.bash_history
 
-export HOME=/root
+    export HOME=/root
+}
+
+SETUP_INSTALL_PROFILE() {
+    case $INSTALL_PROFILE in
+        INSTALL_FN_*)
+            echo "INSTALL_PROFILE: invoking $INSTALL_PROFILE"
+            $INSTALL_PROFILE;;
+        *)
+            echo "INSTALL_PROFILE: Bad $INSTALL_PROFILE ... skipping";;
+    esac
+}
 
 ERROR() {
     echo "******************************************************"
@@ -82,7 +76,11 @@ SECTION_LOG() {
 SECTION() {
     SECTION="$*"
 
-    echo; echo "== [$(date)] ========== $SECTION =================================" | SECTION_LOG
+    echo;
+    { 
+        df -h / | grep -v ^Filesystem;
+	echo "== [$(date)] ========== $SECTION =================================";
+    } | SECTION_LOG
     $*
 }
 
@@ -129,7 +127,6 @@ TIMER_hhmmss() {
 set_EVENT_WORKSPACE_NODES() {
     [ -z "$NUM_NODES" ] && die "Expected number of nodes is not set/exported from invoking user-data script"
 
-    EVENT_INFO=/tmp/event.log
     cp /dev/null $EVENT_LOG
 
     _NUM_NODES=$($SCRIPT_DIR/get_strigo_info.py -nodes | tee -a $EVENT_LOG)
@@ -152,6 +149,8 @@ set_EVENT_WORKSPACE_NODES() {
     [ -z "$WORKSPACE"  ] && die "WORKSPACE is unset"
 
     $SCRIPT_DIR/get_strigo_info.py -v -ips | tee -a $EVENT_LOG
+
+    USER_EMAIL=$($SCRIPT_DIR/get_strigo_info.py -oem | tee -a $EVENT_LOG)
 }
 
 START_DOCKER_plus() {
@@ -164,7 +163,7 @@ START_DOCKER_plus() {
     usermod -aG docker ubuntu
     #{ echo "ubuntu: docker ps"; sudo -u ubuntu docker ps; } | SECTION_LOG
     docker version -f "Docker Version Client={{.Client.Version}} Server={{.Server.Version}}" | SECTION_LOG
-    echo "ubuntu: docker version"; sudo -i docker version
+    echo "ubuntu: docker version"; sudo docker version
     # newgrp docker # In shell allow immediate joining of group / use of docker
 }
 
@@ -190,12 +189,17 @@ KUBEADM_INIT() {
     sudo hostnamectl set-hostname $NODE_NAME
     echo "local hostname=$(hostname)" | SECTION_LOG
 
+    KUBERNETES_VERSION="--kubernetes-version $K8S_RELEASE"
+    [ $UPGRADE_KUBE_LATEST -eq 1 ] && KUBERNETES_VERSION="--kubernetes-version $(kubeadm version -o short)"
+
     kubeadm init $KUBERNETES_VERSION --node-name $NODE_NAME \
             --pod-network-cidr=$POD_CIDR --kubernetes-version=$K8S_RELEASE \
             --apiserver-cert-extra-sans=$PUBLIC_IP | \
         tee /tmp/kubeadm-init.out
     #kubeadm init | tee /tmp/kubeadm-init.out
     kubectl get nodes | SECTION_LOG
+
+    kubectl taint node master node-role.kubernetes.io/master:NoSchedule-
 }
 
 # Configure nodes access from master:
@@ -303,7 +307,7 @@ KUBEADM_JOIN() {
     MAX_LOOPS=10; LOOP=0;
     while ! kubectl get nodes | grep $WORKER_NODE_NAME; do
 	echo "Waiting for worker nodes to join ..."
-        let LOOP=LOOP+1; sleep 2; [ $LOOP -ge $MAX_LOOP ] && die "Failed to join $WORKER_NODE_NAME"
+        let LOOP=LOOP+1; sleep 2; [ $LOOP -ge $MAX_LOOPS ] && die "Failed to join $WORKER_NODE_NAME"
     done
 }
 
@@ -320,6 +324,15 @@ CNI_INSTALL() {
 
     echo "NEED TO WAIT - HOW TO HANDLE failure ... need to restart coredns, other?"
     kubectl get nodes | SECTION_LOG
+
+    WAIT_NS_PODS kube-system
+    if [ $BAD_PODS -ne 0 ]; then
+	for BAD_POD_NAME in $BAD_PODS_NAME; do
+	    echo "bad pod: kubectl delete pod -n kube-system $BAD_POD_NAME"
+	    kubectl delete pod -n kube-system $BAD_POD_NAME
+	done
+    fi
+    WAIT_NS_PODS kube-system
 }
 
 SETUP_KUBECONFIG() {
@@ -337,7 +350,7 @@ SETUP_KUBECONFIG() {
 
     echo "ubuntu: kubectl get nodes:"
     #sudo -u ubuntu KUBECONFIG=/home/ubuntu/.kube/config kubectl get nodes
-    sudo -u ubuntu kubectl get nodes
+    sudo -u ubuntu HOME=/home/ubuntu kubectl get nodes
 
     ls -altr /root/.kube/config /home/ubuntu/.kube/config | SECTION_LOG
 }
@@ -348,13 +361,48 @@ KUBECTL_VERSION() {
     { echo "kubectl version: $(kubectl version --short)" | tr '\n' ' '; echo; } | SECTION_LOG
 }
 
-INSTALL_KUBELAB() {
-    mkdir -p /root/github.com
-    git clone https://github.com/mjbright/kubelab /root/github.com/kubelab
+CHANGE_KUBELET_LIMITS() {
+    cp -a /var/lib/kubelet/config.yaml /var/lib/kubelet/config.yaml.orig
+    sed -i.bak '/evictionPressureTransitionPeriod:/a evictionHard:\n\ \ imagefs.available: "5%"\n\ \ memory.available: "5%"\n\ \ nodefs.available: "5%"\n\ \ nodefs.inodesFree: "5%"' /var/lib/kubelet/config.yaml
+    diff -C 2 /var/lib/kubelet/config.yaml.orig /var/lib/kubelet/config.yaml
+    systemctl daemon-reload
+    systemctl restart kubelet
+    ps -fade | grep -v grep | grep -v apiserver | grep kubelet || {
+        set -x
+        echo "FAILED to change kubelet limits"
+        cp -a /var/lib/kubelet/config.yaml.orig /var/lib/kubelet/config.yaml
+        systemctl daemon-reload
+        systemctl restart kubelet
+    } | SECTION_LOG
+    ps -fade | grep -v grep | grep -v apiserver | grep kubelet || {
+        echo "FAILED to reset kubelet limits"
+    } | SECTION_LOG
+}
 
+INSTALL_JUPYTER() {
+    JUPYTER_INSTALL_URL="${RAWREPO_URL}/master/INSTALL_JUPYTER.sh "
+
+    wget -O /tmp/INSTALL_JUPYTER.sh $JUPYTER_INSTALL_URL
+    chmod +x /tmp/INSTALL_JUPYTER.sh
+    /tmp/INSTALL_JUPYTER.sh
+}
+
+INSTALL_KUBELAB() {
+    CHANGE_KUBELET_LIMITS
+    /tmp/kubelab.sh
+}
+
+CREATE_INSTALL_KUBELAB() {
     cat > /tmp/kubelab.sh << EOF
 
+die() { echo "\$0: die - \$*" >&2; exit 1; }
+
+[ \$(id -un) != 'root' ] && die "Must be run as root"
+
 set -x
+
+mkdir -p /root/github.com
+git clone https://github.com/mjbright/kubelab /root/github.com/kubelab
 
 # Create modified config.kubelab
 # - needed so kubectl in cluster will use 'default' namespace not 'kubelab':
@@ -376,29 +424,59 @@ kubectl -n kubelab get pods -o wide | grep " Running " || sleep 10
 kubectl -n kubelab get pods -o wide | grep " Running " || sleep 10
 
 kubectl -n kubelab cp /root/.jupyter.profile kubelab:.profile
+
+SECTION_LOG=/tmp/SECTION.log
+
+SECTION_LOG() {
+    if [ -z "$1" ]; then
+        tee -a ${SECTION_LOG}
+    else
+        echo "$*" >> ${SECTION_LOG}
+    fi
+}
+
+kubectl -n kubelab get pods | SECTION_LOG
+
+POD_SPEC="-n kubelab"
+BAD_PODS=$(kubectl get pods $POD_SPEC --no-headers | grep -v Running | wc -l)
+#WAIT_POD_RUNNING -n kubelab
+while [ $BAD_PODS -ne 0 ]; do
+    echo "Waiting for Pods [$POD_SPEC] to be Running" | SECTION_LOG
+    kubectl get pods $POD_SPEC
+    BAD_PODS=$(kubectl get pods $POD_SPEC --no-headers | grep -v Running | wc -l)
+    sleep 5
+done
+
+kubectl -n kubelab cp /root/.jupyter.profile kubelab:.jupyter.profile
+
+{ kubectl -n kubelab get pods;
+  df -h / | grep -v ^Filesystem; } |
+    SECTION_LOG
 EOF
 
     chmod +x /tmp/kubelab.sh
-    /tmp/kubelab.sh
-
-    kubectl -n kubelab get pods | SECTION_LOG
-    WAIT_POD_RUNNING -n kubelab
-    kubectl -n kubelab cp /root/.jupyter.profile kubelab:.jupyter.profile
 }
 
-INSTALL_PCC_TWISTLOCK() {
+INSTALL_PRISMACLOUD() {
 
     MAX_LOOPS=10; LOOP=0;
-    while !  ls -altrh /var/nfs/general/MOUNTED_from_NODE_worker* ; do
-	echo "Waiting for worker nodes to mount NFS share ..."
-        let LOOP=LOOP+1; sleep 12; [ $LOOP -ge $MAX_LOOP ] && die "Failed waiting for $WORKER_NODE_NAME to mount NFS share"
+    NFS_CHECK=/var/nfs/general/MOUNTED_from_NODE_worker
+
+    while !  ls -altrh ${NFS_CHECK}* 2>/dev/null ; do
+	echo "Waiting for worker nodes to mount NFS share ... ${NFS_CHECK}*"
+        let LOOP=LOOP+1; sleep 30; [ $LOOP -ge $MAX_LOOPS ] && die "Failed waiting for $WORKER_NODE_NAME to mount NFS share"
     done
-    ls -altr /var/nfs/general/MOUNTED_from_NODE_worker* | SECTION_LOG
+    ls -altr ${NFS_CHECK}* | SECTION_LOG
 
-    wget -O /tmp/install_pcc.sh $INSTALL_PCC_SH_URL
+    {
+        echo export PRISMACLOUD_TAR="$PRISMACLOUD_TAR";
+        echo export PRISMACLOUD_ACCESS="$PRISMACLOUD_ACCESS";
+    } > /root/tmp/PRISMACLOUD.vars
 
-    chmod +x /tmp/install_pcc.sh
-    /tmp/install_pcc.sh --init-console
+    #wget -O /tmp/INSTALL_PRISMACLOUD.sh $INSTALL_PRISMACLOUD_SH_URL
+    #chmod +x /tmp/INSTALL_PRISMACLOUD.sh
+    #/tmp/INSTALL_PRISMACLOUD.sh --init-console
+    $SCRIPT_DIR/INSTALL_PRISMACLOUD.sh --init-console
 }
 
 INSTALL_HELM() {
@@ -439,9 +517,9 @@ INSTALL_TERRAFORM() {
     ls -altrh $BIN/terraform | SECTION_LOG
 }
 
-DOWNLOAD_PCC_TWISTLOCK() {
-    wget -qO $PRISMA_PCC_TAR $PRISMA_PCC_URL
-    ls -altrh $PRISMA_PCC_TAR | SECTION_LOG
+DOWNLOAD_PRISMACLOUD() {
+    wget -qO $PRISMACLOUD_TAR $PRISMACLOUD_URL
+    ls -altrh $PRISMACLOUD_TAR | SECTION_LOG
 }
 
 REGISTER_INSTALL_START() {
@@ -452,6 +530,19 @@ REGISTER_INSTALL_END() {
     wget -qO - "$REGISTER_URL/${EVENT}_${WORKSPACE}_${NODE_NAME}_${PUBLIC_IP}_provisioning_END"
 }
 
+KUBE_RECORD_POD_STARTUP_EVENTS() {
+    #for NAME in $(kubectl get pods -n kube-system --no-headers | awk '{ print $1; }'); do kubectl describe -n kube-system pod/$NAME | sed -e "s?^Events:?Events: kube-system/$NAME?" | grep -A 10 Events: ; done
+    #for NAME in $(kubectl get pods -n $NS --no-headers | awk '{ print $1; }'); do kubectl describe -n $NS pod/$NAME | sed -e "s?^Events:?Events: $NS/$NAME?" | grep -A 10 Events: ; done
+
+    NS=kube-system
+
+    for NAME in $(kubectl get pods -n $NS --no-headers | awk '{ print $1; }'); do
+        echo
+        kubectl get      -n $NS pod/$NAME
+        kubectl describe -n $NS pod/$NAME | sed -e "s?^Events:?Events: $NS/$NAME?" | grep -A 10 Events:
+    done | tee /tmp/${NS}.Pods.Events.log
+}
+
 INSTALL_KUBERNETES() {
     case $K8S_INSTALLER in
         "kubeadm")
@@ -460,6 +551,7 @@ INSTALL_KUBERNETES() {
             SECTION CNI_INSTALL
             SECTION KUBEADM_JOIN
             SECTION KUBECTL_VERSION
+	    SECTION KUBE_RECORD_POD_STARTUP_EVENTS
         ;;
         "rancher")
             SECTION RANCHER_INIT
@@ -471,10 +563,12 @@ INSTALL_KUBERNETES() {
 
 # Setup NFS share across nodes
 # - https://www.digitalocean.com/community/tutorials/how-to-set-up-an-nfs-mount-on-ubuntu-18-04
-SETUP_NFS() {
+CONFIGURE_NFS() {
     NODE_TYPE=$1; shift
 
     echo "Firewall(ufw status): $( ufw status )"
+
+    NFS_CHECK_MASTER=/nfs/general/MOUNTED_from_NODE_master.txt
 
     case $NODE_TYPE in
         master)
@@ -494,7 +588,7 @@ SETUP_NFS() {
             systemctl restart nfs-kernel-server
             ln -s /var/nfs/general /nfs/
 
-	    date >> /nfs/general/MOUNTED_from_NODE_$(hostname).txt
+	    date >> $NFS_CHECK_MASTER
             df -h     /var/nfs/general | SECTION_LOG
             ls -altrh /var/nfs/general | SECTION_LOG
             ;;
@@ -503,9 +597,9 @@ SETUP_NFS() {
 
 	    mount master:/var/nfs/general /nfs/general
             MAX_LOOPS=10; LOOP=0;
-	    while [ ! -f /nfs/general/MOUNTED_from_NODE_master.txt ] ; do
-	        echo "Waiting for master node to initialize NFS share ..."
-                let LOOP=LOOP+1; sleep 12; [ $LOOP -ge $MAX_LOOP ] && die "Failed waiting to mount share"
+	    while [ ! -f $NFS_CHECK_MASTER ] ; do
+	        echo "Waiting for master node to initialize NFS share ...  $NFS_CHECK_MASTER"
+                let LOOP=LOOP+1; sleep 30; [ $LOOP -ge $MAX_LOOPS ] && die "Failed waiting to mount share"
 	        mount master:/var/nfs/general /nfs/general
             done
 
@@ -524,12 +618,33 @@ SHOWCMD() {
     [ $RET -ne 0 ] && echo "--> returned $RET"
 }
 
+WAIT_NS_PODS() {
+    NS=$1; shift
+
+    BAD_PODS=$(kubectl get pods -n $NS --no-headers | grep -v Running | wc -l)
+    MAX_LOOPS=20; LOOP=0;
+    while [ $BAD_PODS -ne 0 ]; do
+        echo "Waiting for remaining (ns:$NS) Pods to be running" | SECTION_LOG
+        let LOOP=LOOP+1; sleep 12; [ $LOOP -ge $MAX_LOOPS ] && die "Failed waiting for remaining Pods"
+
+        kubectl get pods -n $NS --no-headers | grep -v Running | SECTION_LOG
+        BAD_PODS=$(kubectl get pods -n $NS --no-headers | grep -v Running | wc -l)
+
+	# Show status of none-Running Pods:
+	BAD_PODS_NAME=$(kubectl get pods -n $NS --no-headers | grep -v Running | awk '{ print $1; }')
+	for BAD_POD_NAME in $BAD_PODS_NAME; do
+            kubectl describe pod -n $BAD_POD_NAME | grep -A 10 Events:
+	done
+    done
+    BAD_PODS=$(kubectl get pods -n $NS --no-headers | grep -v Running | wc -l)
+}
+
 FINISH() {
     SHOWCMD kubectl get pods -A | SECTION_LOG
     SHOWCMD kubectl get ns      | SECTION_LOG
     SHOWCMD kubectl describe nodes > /tmp/nodes.describe.txt
 
-    SSH_EACH_NODE 'df -h /' | SECTION_LOG
+    SSH_EACH_NODE 'echo $(hostname; df -h / | grep -v ^Filesystem)' | SECTION_LOG
 
     kubectl get pods -A --no-headers | grep -v Running
     kubectl get pods -A --no-headers | grep Evicted &&
@@ -541,19 +656,35 @@ FINISH() {
     #BAD_PODS=$(kubectl get pods -A -o json | jq '.items[] | select(.status.reason!=null)' | wc -l)
 
     BAD_PODS=$(kubectl get pods -A --no-headers | grep -v Running | wc -l)
-    MAX_LOOPS=10; LOOP=0;
+    MAX_LOOPS=20; LOOP=0;
     while [ $BAD_PODS -ne 0 ]; do
 	echo "Waiting for remaining Pods to be running" | SECTION_LOG
-        let LOOP=LOOP+1; sleep 12; [ $LOOP -ge $MAX_LOOP ] && die "Failed waiting for remaining Pods"
+        let LOOP=LOOP+1; sleep 12; [ $LOOP -ge $MAX_LOOPS ] && die "Failed waiting for remaining Pods"
 
         #kubectl get pods -A -o json | jq '.items[] | select(.status.reason!=null)'
         #BAD_PODS=$(kubectl get pods -A -o json | jq '.items[] | select(.status.reason!=null)' | wc -l)
         kubectl get pods -A --no-headers | grep -v Running | SECTION_LOG
         BAD_PODS=$(kubectl get pods -A --no-headers | grep -v Running | wc -l)
+
+	# Show status of none-Running Pods:
+	BAD_PODS_NS_AND_NAME=$(kubectl get pods -A --no-headers | grep -v Running | awk '{ print $1, $2; }')
+	for BAD_POD_NS_AND_NAME in $BAD_PODS_NS_AND_NAME; do
+            kubectl describe pod -n $BAD_POD_NS_AND_NAME | grep -A 10 Events:
+	done
     done
 
-    { echo; echo "----"; kubectl get pods -n twistlock; kubectl get pods -n kubelab
+    scp worker1:/tmp/SECTION.log /tmp/SECTION.log.worker1
+
+    {
+      echo; echo "----"; kubectl get pods -n twistlock; kubectl get pods -n kubelab
       echo; echo "----"; echo "Connect to Console at [cat /tmp/PCC.console.url]:"; cat /tmp/PCC.console.url
+      df -h / | grep -v ^Filesystem;
+      SSH_EACH_NODE 'echo $(hostname; df -h / | grep -v ^Filesystem)' | SECTION_LOG
+      wc -l /tmp/SECTION.log*;
+
+      kubectl describe nodes | grep -iE "^(  name:|taint:)" | SECTION_LOG
+
+      CHECK_FINISH_STATE
     } | SECTION_LOG
 }
 
@@ -586,55 +717,75 @@ WAIT_POD_RUNNING() {
 
 TIMER_START
 
+INIT_PROFILE_HISTORY
+
+## -- Get node/event info --------------------------------------
 SECTION_LOG "PUBLIC_IP=$PUBLIC_IP"
 
 [ -z "$API_KEY"           ] && die "API_KEY is unset"
 [ -z "$ORG_ID"            ] && die "ORG_ID is unset"
-[ -z "$OWNER_ID_OR_EMAIL" ] && die "OWNER_ID_OR_EMAIL is unset"P
+[ -z "$OWNER_ID_OR_EMAIL" ] && die "OWNER_ID_OR_EMAIL is unset"
 
-[ -z "$PRIVATE_IP"        ] && die "PRIVATE_IP is unset"P
-[ -z "$PUBLIC_IP"         ] && die "PUBLIC_IP is unset"P
+[ -z "$PRIVATE_IP"        ] && die "PRIVATE_IP is unset"
+[ -z "$PUBLIC_IP"         ] && die "PUBLIC_IP is unset"
 
 echo "Checking for Events owned by '$OWNER_ID_OR_EMAIL'"
+set_EVENT_WORKSPACE_NODES
+[ -z "$USER_EMAIL" ]        && die "USER_EMAIL is unset"
 
+## -- Set install profile --------------------------------------
+SETUP_INSTALL_PROFILE
+SET_MISSING_DEFAULTS
+
+## -- Start install --------------------------------------------
 [ ! -z "$REGISTER_URL"    ] && SECTION REGISTER_INSTALL_START
 
 APT_INSTALL_PACKAGES="jq zip"
+
+[ $ANSIBLE_INSTALL -eq 1 ] && APT_INSTALL_PACKAGES+=" ansible ansible-lint ansible-tower-cli ansible-tower-cli-doc"
 
 [ $UPGRADE_KUBE_LATEST -eq 1 ] && APT_INSTALL_PACKAGES+=" kubeadm kubelet kubectl"
 
 SECTION START_DOCKER_plus
 # SECTION GET_LAB_RESOURCES - CAREFUL THIS WILL EXPOSE YOUR API_KEY/ORG_ID
 
-set_EVENT_WORKSPACE_NODES
-
 # Perform all kubeadm operations from Master1:
 if [ $NODE_IDX -eq 0 ] ; then
-    APT_INSTALL_PACKAGES+=" nfs-kernel-server"
+    [ $CONFIGURE_NFS   -ne 0 ]        && APT_INSTALL_PACKAGES+=" nfs-kernel-server"
 
     #apt-get update && apt-get install -y $APT_INSTALL_PACKAGES
-    apt-get update  && apt-get upgrade -y $APT_INSTALL_PACKAGES
+    #apt-get update  && apt-get upgrade -y $APT_INSTALL_PACKAGES
+    #apt-get update  && apt-get upgrade && apt-get install -y $APT_INSTALL_PACKAGES
+    apt-get update
+    apt-get upgrade
+    apt-get install -y $APT_INSTALL_PACKAGES
 
     SECTION CONFIG_NODES_ACCESS
     [ $INSTALL_KUBERNETES -ne 0 ]     && SECTION INSTALL_KUBERNETES
+    [ $INSTALL_KUBELAB -ne 0 ]        && CREATE_INSTALL_KUBELAB
     [ $INSTALL_KUBELAB -ne 0 ]        && SECTION INSTALL_KUBELAB
-    SECTION SETUP_NFS master on $NODE_NAME
-    [ $DOWNLOAD_PCC_TWISTLOCK -ne 0 ] && SECTION DOWNLOAD_PCC_TWISTLOCK
-    [ $INSTALL_PCC_TWISTLOCK -ne 0 ]  && SECTION INSTALL_PCC_TWISTLOCK
+    [ $INSTALL_JUPYTER -ne 0 ]        && SECTION INSTALL_JUPYTER
+    [ $CONFIGURE_NFS   -ne 0 ]        && SECTION CONFIGURE_NFS master on $NODE_NAME
+    [ $DOWNLOAD_PRISMACLOUD -ne 0 ]   && SECTION DOWNLOAD_PRISMACLOUD
+    [ $INSTALL_PRISMACLOUD -ne 0 ]    && SECTION INSTALL_PRISMACLOUD
     [ $INSTALL_TERRAFORM -ne 0 ]      && SECTION INSTALL_TERRAFORM
     [ $INSTALL_HELM -ne 0 ]           && SECTION INSTALL_HELM
 else
     let NUM_WORKERS=NUM_NODES-NUM_MASTERS
     [ $NUM_MASTERS -gt 1 ] && die "Not implemented NUM_MASTERS > 1"
 
-    APT_INSTALL_PACKAGES+=" nfs-common"
+    [ $CONFIGURE_NFS   -ne 0 ]        && APT_INSTALL_PACKAGES+=" nfs-common"
 
     #apt-get update && apt-get install -y $APT_INSTALL_PACKAGES
-    apt-get update  && apt-get upgrade -y $APT_INSTALL_PACKAGES
+    #apt-get update  && apt-get upgrade -y $APT_INSTALL_PACKAGES
+    #apt-get update  && apt-get upgrade && apt-get install -y $APT_INSTALL_PACKAGES
+    apt-get update
+    apt-get upgrade
+    apt-get install -y $APT_INSTALL_PACKAGES
 
     while [ ! -f /tmp/NODE_NAME ]; do sleep 5; done
     #NODE_NAME=$(cat /tmp/NODE_NAME)
-    SECTION SETUP_NFS worker on $(hostname)
+    [ $CONFIGURE_NFS -ne 0 ]          && SECTION CONFIGURE_NFS worker on $(hostname)
 fi
 
 #echo "export PS1='\u@\h:\w\$'"
