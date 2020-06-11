@@ -1,8 +1,11 @@
 #!/bin/bash
 
+set -x
+
+. /root/tmp/PRISMACLOUD.vars
 
 PUBLIC_HOST=$(ec2metadata --public-host)
-ADMIN_USER="admin"
+ADMIN_USER="pccadmin"
 
 SECTION_LOG=/tmp/SECTION.log
 
@@ -22,12 +25,12 @@ die() {
 [ `id -un` != 'root' ] && die "$0: run as root"
 
 UNPACK_TAR() {
-    echo; echo "---- Unpacking tar [$PRISMA_PCC_TAR] -----"
+    echo; echo "---- Unpacking tar [$PRISMACLOUD_TAR] -----"
 
-    tar xvzf $PRISMA_PCC_TAR  -C ~/twistlock
+    tar xvzf $PRISMACLOUD_TAR  -C ~/twistlock
 
     { echo; echo "---- Removing tar file to win back disk space:";
-    df -h / ; echo "rm  -f $PRISMA_PCC_TAR"; rm  -f $PRISMA_PCC_TAR; df -h /;
+    df -h / ; echo "rm  -f $PRISMACLOUD_TAR"; rm  -f $PRISMACLOUD_TAR; df -h /;
     echo "----"
     } | SECTION_LOG
 }
@@ -35,15 +38,19 @@ UNPACK_TAR() {
 CREATE_CONSOLE() {
     echo; echo "---- Creating Prisma Console"
 
-    . /root/.profile
+    . /root/.profile 2>/dev/null # Ignore "mesg: ttyname failed: Inappropriate ioctl for device" caused by "mesg n"
 set -x
     #./linux/twistcli console export kubernetes --service-type LoadBalancer
-    #env | grep PRISMA_PCC_ACCESS
-    env | grep PRISMA_PCC_ACCESS
-    #[ ! -z "$PRISMA_PCC_ACCESS" ] && TW_CONS_OPTS="--registry-token $PRISMA_PCC_ACCESS"
-    #export TW_CONS_OPTS="--registry-token $PRISMA_PCC_ACCESS"
+    #env | grep PRISMACLOUD_ACCESS
+    env | grep PRISMACLOUD_ACCESS
+    #[ ! -z "$PRISMACLOUD_ACCESS" ] && TW_CONS_OPTS="--registry-token $PRISMACLOUD_ACCESS"
+    #export TW_CONS_OPTS="--registry-token $PRISMACLOUD_ACCESS"
 
-    ./linux/twistcli console export kubernetes --registry-token "$PRISMA_PCC_ACCESS" --service-type NodePort
+    ./linux/twistcli console export kubernetes --registry-token "$PRISMACLOUD_ACCESS" --service-type NodePort
+
+    # LATER: mv
+    cp -a ./linux/twistcli /usr/local/bin/
+
     #./linux/twistcli console export kubernetes $TW_CONS_OPTS --service-type NodePort
 #set +x
 
@@ -133,8 +140,8 @@ GET_ADMIN_NODE_PORT() {
 }
 
 INIT_CONSOLE() {
-    [ -z "$PRISMA_PCC_TAR"    ] && die "$PRISMA_PCC_TAR env var is unset"
-    [ -z "$PRISMA_PCC_ACCESS" ] && die "$PRISMA_PCC_ACCESS env var is unset"
+    [ -z "$PRISMACLOUD_TAR"    ] && die "\$PRISMACLOUD_TAR env var is unset"
+    [ -z "$PRISMACLOUD_ACCESS" ] && die "\$PRISMACLOUD_ACCESS env var is unset"
 
     ping -c 1 registry-auth.twistlock.com || die " Cant reach registry";
     UNPACK_TAR
@@ -145,14 +152,17 @@ INIT_CONSOLE() {
 }
 
 CREATE_DEFENDER() {
-    PUBLIC_HOST=$(ec2metadata --public-host)
-    ADMIN_USER="admin"
-
     ./linux/twistcli defender export kubernetes --address https://${PUBLIC_HOST}:${ADMIN_NODE_PORT} --user $ADMIN_USER --cluster-address twistlock-console
 
     [ ! -f defender.yaml ] && die "Failed to export defender manifest"
 
     kubectl create -f defender.yaml | SECTION_LOG
+}
+
+CLEANUP_TWISTLOCK_2() {
+    CMD="rm -rf twistlock/linux"
+    { echo; echo "---- Cleaning up unused twistlock files ---------"
+      df -h /; echo "-- $CMD"; $CMD; df -h /; } | SECTION_LOG
 }
 
 CLEANUP_TWISTLOCK() {
@@ -171,10 +181,11 @@ cd       /root/twistlock
 
 if [ "$1" = "--init-console" ];then
     INIT_CONSOLE
+    CLEANUP_TWISTLOCK
 else
     GET_ADMIN_NODE_PORT
     CREATE_DEFENDER
-    CLEANUP_TWISTLOCK
+    CLEANUP_TWISTLOCK_2
 fi
 
 

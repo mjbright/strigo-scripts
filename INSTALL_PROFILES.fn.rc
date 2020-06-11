@@ -1,0 +1,186 @@
+
+# Any crucial variables not set by the INSTALL_FN_* should be set to defaults here:
+SET_MISSING_DEFAULTS() {
+    #${AAAA:-bbbb}
+    export INSTALL_KUBERNETES=${INSTALL_KUBERNETES:-0}
+    export DOWNLOAD_PRISMACLOUD=${DOWNLOAD_PRISMACLOUD:-0}
+    export INSTALL_PRISMACLOUD=${INSTALL_PRISMACLOUD:-0}
+    export UNTAINT_MASTER=${UNTAINT_MASTER:-0}
+}
+
+# Profile for Kubernetes (already installed) Workshops:
+INSTALL_FN_K8S() {
+
+    # MY TOOLS:
+    export INSTALL_JUPYTER=0 INSTALL_KUBELAB=0
+
+    # TOOLS:
+    export INSTALL_TERRAFORM=0 INSTALL_HELM=0
+    export ANSIBLE_INSTALL=1
+
+    # KUBERNETES+INSTALLER VERSIONS:
+    # To force a specific version, e.g. "stable-1" or "v1.18.2" set to version here
+    # TO upgrade to latest set UPGRADE_KUBE_LATEST=1
+    export INSTALL_KUBERNETES=1
+    #export K8S_RELEASE="v1.18.2"
+    export UPGRADE_KUBE_LATEST=1
+    export K8S_INSTALLER="kubeadm"
+    #export K8S_INSTALLER="rancher/rke"
+    export UNTAINT_MASTER=1
+
+    export USERS="ubuntu:sudo"
+
+    # Prisma Cloud specific:
+    export DOWNLOAD_PRISMACLOUD=0 INSTALL_PRISMACLOUD=0 CONFIGURE_NFS=0
+    export CHECK_COMPLETE_FN=CHECK_FN_K8S
+}
+
+# Profile for Kubernetes (to be installed e.g. for LFS458) Workshops:
+INSTALL_FN_K8S_MANUAL() {
+
+    # MY TOOLS:
+    export INSTALL_JUPYTER=0 INSTALL_KUBELAB=0
+
+    # TOOLS:
+    export INSTALL_TERRAFORM=0 INSTALL_HELM=0
+    export ANSIBLE_INSTALL=1
+
+    # KUBERNETES+INSTALLER VERSIONS:
+    # To force a specific version, e.g. "stable-1" or "v1.18.2" set to version here
+    # TO upgrade to latest set UPGRADE_KUBE_LATEST=1
+    export INSTALL_KUBERNETES=0
+    #export K8S_RELEASE="v1.18.2"
+    export UPGRADE_KUBE_LATEST=1
+    export K8S_INSTALLER="kubeadm"
+    #export K8S_INSTALLER="rancher/rke"
+    export UNTAINT_MASTER=0
+
+    export USERS="ubuntu:sudo"
+
+    # Prisma Cloud specific:
+    export DOWNLOAD_PRISMACLOUD=0 INSTALL_PRISMACLOUD=0 CONFIGURE_NFS=0
+    #export CHECK_COMPLETE_FN=CHECK_FN_K8S
+}
+
+# Profile for Kubernetes+PrismaCloud Workshops:
+INSTALL_FN_K8S_MANUAL_PrismaCloud() {
+
+    # MY TOOLS:
+    export INSTALL_JUPYTER=0 INSTALL_KUBELAB=0
+
+    # TOOLS:
+    export INSTALL_TERRAFORM=0 INSTALL_HELM=0
+    export ANSIBLE_INSTALL=1
+
+    # KUBERNETES+INSTALLER VERSIONS:
+    # To force a specific version, e.g. "stable-1" or "v1.18.2" set to version here
+    # TO upgrade to latest set UPGRADE_KUBE_LATEST=1
+    export INSTALL_KUBERNETES=1
+    #export K8S_RELEASE="v1.18.2"
+    export UPGRADE_KUBE_LATEST=1
+    export K8S_INSTALLER="kubeadm"
+    #export K8S_INSTALLER="rancher/rke"
+    export UNTAINT_MASTER=1
+
+    export USERS="ubuntu:sudo"
+
+    # Prisma Cloud specific:
+    export DOWNLOAD_PRISMACLOUD=0 INSTALL_PRISMACLOUD=0 CONFIGURE_NFS=0
+    export CHECK_COMPLETE_FN=CHECK_FN_K8S
+
+    ## - CREATE_USEFUL_SCRIPTS:
+    echo 'kubectl -n frontend set image deploy/nginx nginx=nginx:1.12' > /tmp/reset_nginx_1.12.sh
+    chmod +x /tmp/reset_nginx_1.12.sh
+
+    echo 'kubectl -n frontend set image deploy/nginx nginx=nginx:1.18' > /tmp/reset_nginx_1.18.sh
+    chmod +x /tmp/reset_nginx_1.18.sh
+}
+
+INSTALL_FN_K8S_PrismaCloud() {
+
+    # No automatic PrismaCloud installation for students:
+    INSTALL_FN_K8S_MANUAL_PrismaCloud
+
+    # For owner we choose to install extra items:
+    [ "$USER_EMAIL" = "$OWNER_ID_OR_EMAIL" ] && {
+        export INSTALL_JUPYTER=1
+
+        # Student install does not download/install PrismaCloud: but I'm lazy ...
+        export DOWNLOAD_PRISMACLOUD=1 INSTALL_PRISMACLOUD=1 CONFIGURE_NFS=1
+        export CHECK_COMPLETE_FN=CHECK_FN_K8S_PrismaCloud
+
+        export PRISMACLOUD_RELEASE=20_04_163
+        INSTALL_PRISMACLOUD_SH_URL="${RAWREPO_URL}/master/install_pcc.sh"
+        #https://cdn.twistlock.com/releases/6e6c2d6a/prisma_cloud_compute_edition_20_04_163.tar.gz
+        export PRISMACLOUD_TAR="/tmp/prisma_cloud_compute_edition_${PRISMACLOUD_RELEASE}.tar.gz"
+        export PRISMACLOUD_URL="https://cdn.twistlock.com/releases/6e6c2d6a/prisma_cloud_compute_edition_${PRISMACLOUD_RELEASE}.tar.gz"
+
+        [ ! -z "$PRISMACLOUD_ACCESS"  ] && echo "export PRISMACLOUD_ACCESS=$PRISMACLOUD_ACCESS" >> /root/.profile
+        [ ! -z "$PRISMACLOUD_LICENSE" ] && echo "$PRISMACLOUD_LICENSE" > /tmp/PCC.license.txt
+    }
+
+    echo "USER_EMAIL=<$USER_EMAIL> OWNER_ID_OR_EMAIL=<$OWNER_ID_OR_EMAIL> INSTALL_JUPYTER=$INSTALL_JUPYTER DOWNLOAD_PRISMACLOUD=$DOWNLOAD_PRISMACLOUD INSTALL_PRISMACLOUD=$INSTALL_PRISMACLOUD"
+}
+
+CHECK_ALL_NODES_READY() {
+    kubectl get nodes --no-headers | grep -qv " Ready "
+}
+
+CHECK_ALL_PODS_RUNNING() {
+    kubectl get pods $* --no-headers | grep -v " Running "
+}
+
+CHECK_ALL_MATCHING_PODS_RUNNING() {
+    NS_SPEC="$1"; shift
+    POD_NAME="$1"; shift
+
+    kubectl get pods $NS_SPEC --no-headers | grep $POD_NAME |  grep -v " Running "
+}
+
+CHECK_FN_K8S() {
+    STATE=/tmp/CLUSTER.state
+    cp /dev/null $STATE
+    {
+        echo -n "$BASH_SOURCE: "
+
+        # Check all Nodes Ready:
+        CHECK_ALL_NODES_READY && echo -n "FAIL_Nodes " || echo -n "OK_Nodes ";
+
+        # Check all Pods Running:
+        CHECK_ALL_PODS_RUNNING -A && echo -n "FAIL_Pods " || echo -n "OK_Pods ";
+
+        # Check NFS status (if var set):
+        [ $CONFIGURE_NFS -ne 0 ] && {
+            [ $(hostname) = "master"  ] && mount | grep -q nfsd						&& { echo -n "OK_nfsd "; }
+            [ $(hostname) = "master"  ] && [ -f /var/nfs/general/MOUNTED_from_NODE_worker1.txt ]	&& { echo -n "OK_nfsmnt "; }
+            [ $(hostname) != "master" ] && mount | grep -q nfs						&& { echo -n "OK_nfs "; }
+            [ $(hostname) != "master" ] && [ -f /nfs/general/MOUNTED_from_NODE_master.txt ]		&& { echo -n "OK_nfsmnt "; }
+        }
+        echo
+    } >> $STATE
+}
+
+CHECK_FN_K8S_PrismaCloud() {
+    STATE=/tmp/CLUSTER.state
+    cp /dev/null $STATE
+    CHECK_FN_K8S
+
+    {
+        echo -n "$BASH_SOURCE: "
+        {
+        if kubectl get ns --no-headers twistlock | grep -q Active ; then
+            CHECK_ALL_MATCHING_PODS_RUNNING "-n twistlock" twistlock-console && echo -n "FAIL_PrismaConsole " || echo -n "OK_PrismaConsole ";
+            ##kubectl get pods -n twistlock --no-headers | grep -qE "twistlock-console.* Running "		&& { echo -n "OK_PrismaConsole "; }
+            #kubectl get pods -n twistlock --no-headers | grep  -q "twistlock-console" | grep -v " Running "	&& { echo -n "FAIL_PrismaConsole "; }
+        else
+            echo -n "FAIL_No_twistlock_Namespace"
+        fi
+        }
+        echo
+    } >> $STATE
+}
+
+CHECK_FINISH_STATE() {
+    $CHECK_COMPLETE_FN
+    cat $STATE
+}

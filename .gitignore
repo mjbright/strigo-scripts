@@ -7,3 +7,4 @@ tmp.from.vm
 jupyter_tunnel.sh
 scp_kubelab.ipynb.sh
 OLD/
+*license.txt
