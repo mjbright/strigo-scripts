@@ -1,91 +1,81 @@
 
+# SET_DEFAULTS <DEFAULT_VALUE> [<VAR_NAME> ... <VAR_NAME>]
+#
+# For each var, if unset, set it to DEFAULT_VALUE
+SET_DEFAULTS() {
+    local DEFAULT_VALUE=$1; shift
+
+    for VAR in $*; do
+        #set -x; eval $VAR=\${$VAR:-$DEFAULT_VALUE}; set +x
+        eval $VAR=\${$VAR:-$DEFAULT_VALUE}
+    done
+}
+
 # Any crucial variables not set by the INSTALL_FN_* should be set to defaults here:
 SET_MISSING_DEFAULTS() {
-    #${AAAA:-bbbb}
-    export INSTALL_KUBERNETES=${INSTALL_KUBERNETES:-0}
-    export DOWNLOAD_PRISMACLOUD=${DOWNLOAD_PRISMACLOUD:-0}
-    export INSTALL_PRISMACLOUD=${INSTALL_PRISMACLOUD:-0}
-    export UNTAINT_MASTER=${UNTAINT_MASTER:-0}
+    SET_DEFAULTS 0 INSTALL_KUBERNETES UNTAINT_MASTER
+    # MY TOOLS:
+    SET_DEFAULTS 0 INSTALL_JUPYTER INSTALL_KUBELAB
+    # TOOLS:
+    SET_DEFAULTS 0 INSTALL_TERRAFORM INSTALL_HELM
+    # Prisma Cloud specific:
+    SET_DEFAULTS 0 DOWNLOAD_PRISMACLOUD INSTALL_PRISMACLOUD CONFIGURE_NFS
 }
 
 # Profile for Kubernetes (already installed) Workshops:
 INSTALL_FN_K8S() {
-
-    # MY TOOLS:
-    export INSTALL_JUPYTER=0 INSTALL_KUBELAB=0
-
-    # TOOLS:
-    export INSTALL_TERRAFORM=0 INSTALL_HELM=0
     export ANSIBLE_INSTALL=1
 
     # KUBERNETES+INSTALLER VERSIONS:
     # To force a specific version, e.g. "stable-1" or "v1.18.2" set to version here
     # TO upgrade to latest set UPGRADE_KUBE_LATEST=1
     export INSTALL_KUBERNETES=1
+    export UNTAINT_MASTER=1
     #export K8S_RELEASE="v1.18.2"
     export UPGRADE_KUBE_LATEST=1
     export K8S_INSTALLER="kubeadm"
     #export K8S_INSTALLER="rancher/rke"
-    export UNTAINT_MASTER=1
 
     export USERS="ubuntu:sudo"
 
-    # Prisma Cloud specific:
-    export DOWNLOAD_PRISMACLOUD=0 INSTALL_PRISMACLOUD=0 CONFIGURE_NFS=0
     export CHECK_COMPLETE_FN=CHECK_FN_K8S
 }
 
 # Profile for Kubernetes (to be installed e.g. for LFS458) Workshops:
 INSTALL_FN_K8S_MANUAL() {
 
-    # MY TOOLS:
-    export INSTALL_JUPYTER=0 INSTALL_KUBELAB=0
-
-    # TOOLS:
-    export INSTALL_TERRAFORM=0 INSTALL_HELM=0
     export ANSIBLE_INSTALL=1
 
     # KUBERNETES+INSTALLER VERSIONS:
     # To force a specific version, e.g. "stable-1" or "v1.18.2" set to version here
     # TO upgrade to latest set UPGRADE_KUBE_LATEST=1
     export INSTALL_KUBERNETES=0
+    export UNTAINT_MASTER=0
     #export K8S_RELEASE="v1.18.2"
     export UPGRADE_KUBE_LATEST=1
     export K8S_INSTALLER="kubeadm"
     #export K8S_INSTALLER="rancher/rke"
-    export UNTAINT_MASTER=0
 
     export USERS="ubuntu:sudo"
-
-    # Prisma Cloud specific:
-    export DOWNLOAD_PRISMACLOUD=0 INSTALL_PRISMACLOUD=0 CONFIGURE_NFS=0
     #export CHECK_COMPLETE_FN=CHECK_FN_K8S
 }
 
 # Profile for Kubernetes+PrismaCloud Workshops:
 INSTALL_FN_K8S_MANUAL_PrismaCloud() {
-
-    # MY TOOLS:
-    export INSTALL_JUPYTER=0 INSTALL_KUBELAB=0
-
-    # TOOLS:
-    export INSTALL_TERRAFORM=0 INSTALL_HELM=0
     export ANSIBLE_INSTALL=1
 
     # KUBERNETES+INSTALLER VERSIONS:
     # To force a specific version, e.g. "stable-1" or "v1.18.2" set to version here
     # TO upgrade to latest set UPGRADE_KUBE_LATEST=1
     export INSTALL_KUBERNETES=1
+    export UNTAINT_MASTER=1
     #export K8S_RELEASE="v1.18.2"
     export UPGRADE_KUBE_LATEST=1
     export K8S_INSTALLER="kubeadm"
     #export K8S_INSTALLER="rancher/rke"
-    export UNTAINT_MASTER=1
 
     export USERS="ubuntu:sudo"
 
-    # Prisma Cloud specific:
-    export DOWNLOAD_PRISMACLOUD=0 INSTALL_PRISMACLOUD=0 CONFIGURE_NFS=0
     export CHECK_COMPLETE_FN=CHECK_FN_K8S
 
     ## - CREATE_USEFUL_SCRIPTS:
