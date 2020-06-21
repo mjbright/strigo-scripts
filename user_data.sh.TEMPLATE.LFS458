@@ -5,11 +5,11 @@ DIR=/root/tmp; mkdir -p $DIR; cd $DIR
 __VARSFILE_RC__
 
 exec > $DIR/user-data.op 2>&1
-env # Before sensitive values !!
+env
 
 # For testing: export PRIVATE_IP=$(ec2metadata --local-ipv4) PUBLIC_IP=$(ec2metadata --public-ipv4)
-
 git clone $REPO_URL strigo-scripts; INSTALL_SH=$DIR/strigo-scripts/INSTALL.sh
+[ ! -z "$GIT_COMMIT" ] && { cd strigo-scripts; git checkout $GIT_COMMIT; cd -; }
 chmod +x $DIR/strigo-scripts/*.sh $DIR/strigo-scripts/*.py
 
 DEBUG_BASH_X="bash -x"
