@@ -2,7 +2,21 @@
 
 SCRIPT_DIR=$(dirname $0)
 
-# Take defaults on apt-get commands:
+# Detect if interactive, mark if Strigo API working:
+# Note: to test, export SIMULATE_API_FAILURE="1" in user-data
+export STRIGO_API_FAILURE=0
+
+[ ! -z "$UNSET_API_FAILURE" ] && export SIMULATE_API_FAILURE=""
+
+# Detect if interactive shell or not:
+if [ -t 0 ];then
+    # Interactive running on 0th (master) node
+    INTERACTIVE_SHELL=1
+    [ -z "$OVERRIDE_NODE_IDX" ] && export NODE_IDX=0
+else
+    INTERACTIVE_SHELL=0
+fi
+# Take defaults on apt-get commands: even in interactive mode
 export DEBIAN_FRONTEND=noninteractive
 
 sudo mv $(readlink -f /var/lib/cloud/instance) /root/tmp/instance/
@@ -20,6 +34,14 @@ EVENT_LOG=/root/tmp/event.log
 export PRIVATE_IP=$(ec2metadata --local-ipv4)
 export PUBLIC_IP=$(ec2metadata --public-ipv4)
 export NODE_NAME="unset"
+
+# Add ip addresses/placeholder in /etc/hosts:
+{
+    grep -q $PRIVATE_IP   /etc/hosts || echo "$PRIVATE_IP THIS_NODE"
+    grep -q $PUBLIC_IP    /etc/hosts || echo "$PUBLIC_IP THIS_NODE_pub"
+    grep -q "worker1"     /etc/hosts || echo "#x.x.x.x worker1"
+    grep -q "worker1_pub" /etc/hosts || echo "#x.x.x.x worker1_pub"
+} >> /etc/hosts
 
 #K8S_INSTALLER="rancher"
 #RANCHER_RKE_RELEASE="v1.0.6"
@@ -79,7 +101,7 @@ SECTION() {
     echo;
     { 
         df -h / | grep -v ^Filesystem;
-	echo "== [$(date)] ========== $SECTION =================================";
+        echo "== [$(date)] ========== $SECTION =================================";
     } | SECTION_LOG
     $*
 }
@@ -130,9 +152,58 @@ set_EVENT_WORKSPACE_NODES() {
     cp /dev/null $EVENT_LOG
 
     _NUM_NODES=$($SCRIPT_DIR/get_strigo_info.py -nodes | tee -a $EVENT_LOG)
+
+    if [ "$SIMULATE_API_FAILURE" != "" ]; then
+        echo "SIMULATE_API_FAILURE is set: so setting _NUM_NODES=''"
+        _NUM_NODES=""
+    fi
+
+    if [ -z "$_NUM_NODES" ]; then
+        export STRIGO_API_FAILURE=1
+        echo "STRIGO_API data unavailable"
+        USER_EMAIL="USER_EMAIL_unset"
+
+        if [ $INTERACTIVE_SHELL -eq 1 ];then
+            WORKER_IPS=""
+            # Manually setting WORKER_IPS as calls to $SCRIPT_DIR/get_strigo_info.py are failing
+            let NUM_WORKERS=NUM_NODES-1
+            for NODE_NUM in $(seq 1 $NUM_WORKERS); do
+                echo;
+                NODE_NAME="worker${NODE_NUM}"
+                sed 's/#.*//' /etc/hosts | grep -q " ${NODE_NAME}"     || die "Create private ip address entry for $NODE_NAME in /etc/hosts"
+                sed 's/#.*//' /etc/hosts | grep -q " ${NODE_NAME}_pub" || die "Create public  ip address entry for $NODE_NAME in /etc/hosts"
+
+                WORKER_PRIVATE_IP=$(sed -e 's/#.*//' -e 's/ *$//' /etc/hosts | grep " ${NODE_NAME}_pub" | awk '{ print $1; exit(0); }')
+                WORKER_PUBLIC_IP=$( sed -e 's/#.*//' -e 's/ *$//' /etc/hosts | grep " ${NODE_NAME}$"    | awk '{ print $1; exit(0); }')
+
+                #echo "Enter ip addresses of worker$NODE_NUM:"
+                #read -p "Private IP (of form ${PRIVATE_IP%.[0-9]*}.0): " WORKER_PRIVATE_IP
+                [ ! -z "$WORKER_IPS" ] && WORKER_IPS="$WORKER_IPS,"
+                WORKER_IPS+="$WORKER_PRIVATE_IP"
+                #if [ "${PRIVATE_IP%.[0-9]*}.0" != "${WORKER_PRIVATE_IP%.[0-9]*}.0" ]; then
+                #    echo "Warning: ${PRIVATE_IP%.[0-9]*}.0 != ${WORKER_PRIVATE_IP%.[0-9]*}.0"
+                #    echo "Press <enter> to continue (or 'q' to quit)"
+                #    read _DUMMY
+                #    [ "$_DUMMY" = "q" ] && exit 1
+                #    [ "$_DUMMY" = "Q" ] && exit 1
+                #fi
+
+                #read -p "Public  IP (MAY BE of form ${PUBLIC_IP%.[0-9]*}.0): " WORKER_PUBLIC_IP
+                WORKER_IPS+=",$WORKER_PUBLIC_IP"
+
+                echo "Will launch RERUN_INSTALL.sh on worker nodes in background (from CONFIG_NODES_ACCESS())" | SECTION_LOG
+            done
+        else
+            echo "Running in non-interactive shell - exiting, you need to run $SCRIPT_DIR/RERUN_INSTALL.sh"
+            echo "Remember to populate master/worker public/private ip addresses first in master:/etc/hosts"
+            exit 1
+        fi
+        return
+    fi
+
     while [ $_NUM_NODES -lt $NUM_NODES ]; do
         echo "[ '$_NUM_NODES' -lt '$NUM_NODES' ] - waiting for more nodes to become available ..."
-	sleep 5
+        sleep 5
         _NUM_NODES=$($SCRIPT_DIR/get_strigo_info.py -nodes | tee -a $EVENT_LOG)
         [ -z "$_NUM_NODES" ] && _NUM_NODES=0
     done
@@ -219,72 +290,85 @@ CONFIG_NODES_ACCESS() {
     for WORKER in $(seq $NUM_WORKERS); do
         let NODE_NUM=NUM_MASTERS+WORKER-1
 
-        WORKER_IPS=$($SCRIPT_DIR/get_strigo_info.py -ips $NODE_NUM)
+        [ $STRIGO_API_FAILURE -eq 0 ] && WORKER_IPS=$($SCRIPT_DIR/get_strigo_info.py -ips $NODE_NUM)
+        [ -z "$WORKER_IPS" ] && die "[STRIGO_API_FAILURE=$STRIGO_API_FAILURE] Failed to get WORKER_IPS"
+
         WORKER_PRIVATE_IP=${WORKER_IPS%,*};
         WORKER_PUBLIC_IP=${WORKER_IPS#*,};
         WORKER_PRIVATE_IPS+=" $WORKER_PRIVATE_IP"
-	WORKER_NODE_NAME="worker$WORKER"
-	echo "$WORKER_PRIVATE_IP $WORKER_NODE_NAME" | tee -a /tmp/hosts.add | SECTION_LOG
+        WORKER_NODE_NAME="worker$WORKER"
+        echo "$WORKER_PRIVATE_IP $WORKER_NODE_NAME" | tee -a /tmp/hosts.add | SECTION_LOG
 
         mkdir -p ~/.ssh
         mkdir -p /home/ubuntu/.ssh
         touch /home/ubuntu/.ssh/config
         cp -a /home/ubuntu/.ssh/id_rsa /root/.ssh/
         chown ubuntu:ubuntu /home/ubuntu/.ssh/config
-	{
+        {
             echo ""
             echo "Host $WORKER_NODE_NAME"
-	    echo "    User     ubuntu"
-	    echo "    Hostname $WORKER_PRIVATE_IP"
-	    echo "    IdentityFile ~/.ssh/id_rsa"
+            echo "    User     ubuntu"
+            echo "    Hostname $WORKER_PRIVATE_IP"
+            echo "    IdentityFile ~/.ssh/id_rsa"
         } | tee -a /home/ubuntu/.ssh/config | sed 's?~?/root?' | tee -a ~/.ssh/config
 
         echo "WORKER[$WORKER]=NODE[$NODE_NUM] $WORKER_NODE_NAME WORKER_PRIVATE_IP=$WORKER_PRIVATE_IP WORKER_PUBLIC_IP=$WORKER_PUBLIC_IP"
 
-	_SSH_IP="sudo -u ubuntu ssh -o StrictHostKeyChecking=no $WORKER_PRIVATE_IP"
+        _SSH_IP="sudo -u ubuntu ssh -o StrictHostKeyChecking=no $WORKER_PRIVATE_IP"
         while ! $_SSH_IP uptime; do sleep 2; echo "Waiting for successful $WORKER_NODE_NAME ssh conection ..."; done
 
-	_SSH_ROOT_IP="ssh -l ubuntu -o StrictHostKeyChecking=no $WORKER_PRIVATE_IP"
+        _SSH_ROOT_IP="ssh -l ubuntu -o StrictHostKeyChecking=no $WORKER_PRIVATE_IP"
         $_SSH_ROOT_IP uptime
 
-	{
-	    echo "From ubuntu to ubuntu@$WORKER_NODE_NAME: hostname=$($_SSH_IP      hostname)";
-	    echo "From   root to ubuntu@$WORKER_NODE_NAME: hostname=$($_SSH_ROOT_IP hostname)";
-	} | SECTION_LOG
+        {
+            echo "From ubuntu to ubuntu@$WORKER_NODE_NAME: hostname=$($_SSH_IP      hostname)";
+            echo "From   root to ubuntu@$WORKER_NODE_NAME: hostname=$($_SSH_ROOT_IP hostname)";
+        } | SECTION_LOG
         $_SSH_ROOT_IP sudo hostnamectl set-hostname $WORKER_NODE_NAME
+
+        [ $STRIGO_API_FAILURE -eq 1 ] && {
+            echo "[STRIGO_API_FAILURE=$STRIGO_API_FAILURE] Launching RERUN_INSTALL.sh on $WORKER_NODE_NAME"
+
+            # Setting NODE_IDX to NODE_NUM (so we know which worker node is running the script):
+            # Unsetting STRIGO_API_FAILURE
+            RERUN_LOG=/tmp/RERUN_INSTALL_${WORKER_NODE_NAME}.log
+            CMD="$_SSH_ROOT_IP sudo UNSET_API_FAILURE=1 OVERRIDE_NODE_IDX=$NODE_NUM $SCRIPT_DIR/RERUN_INSTALL.sh"
+            echo "-- $CMD >$RERUN_LOG 2>&1 &" | SECTION_LOG
+            $CMD >$RERUN_LOG 2>&1 &
+        }
     done
 
     echo; echo "-- setting up /etc/hosts"
     cat /tmp/hosts.add >> /etc/hosts
     for WORKER in $(seq $NUM_WORKERS); do
-	WORKER_NODE_NAME="worker$WORKER"
+        WORKER_NODE_NAME="worker$WORKER"
         cat /tmp/hosts.add | ssh $WORKER_NODE_NAME "sudo tee -a /etc/hosts"
     done
 }
 
 EACH_NODE() {
     for WORKER in $(seq $NUM_WORKERS); do
-	WORKER_NODE_NAME="worker$WORKER"
+        WORKER_NODE_NAME="worker$WORKER"
         #eval ssh $WORKER_NODE_NAME $*
         #CMD="ssh $WORKER_NODE_NAME $*"
         eval "$*"
         eval CMD="\"$*\""
         #ssh $WORKER_NODE_NAME "eval $CMD"
         #ssh $WORKER_NODE_NAME "$CMD"
-	#eval $CMD
+        #eval $CMD
     done
 }
 
 # TO use once CONFIG_NODES_ACCESS() has run to setup ~/.ssh/config
 SSH_EACH_NODE() {
     for WORKER in $(seq $NUM_WORKERS); do
-	WORKER_NODE_NAME="worker$WORKER"
+        WORKER_NODE_NAME="worker$WORKER"
         #eval ssh $WORKER_NODE_NAME $*
         #CMD="ssh $WORKER_NODE_NAME $*"
         eval CMD="\"$*\""
         #ssh $WORKER_NODE_NAME "eval $CMD"
         ssh $WORKER_NODE_NAME "$CMD"
-	#eval $CMD
+        #eval $CMD
     done
 }
 
@@ -311,7 +395,7 @@ KUBEADM_JOIN() {
 
     MAX_LOOPS=10; LOOP=0;
     while ! kubectl get nodes | grep $WORKER_NODE_NAME; do
-	echo "Waiting for worker nodes to join ..."
+        echo "Waiting for worker nodes to join ..."
         let LOOP=LOOP+1; sleep 2; [ $LOOP -ge $MAX_LOOPS ] && die "Failed to join $WORKER_NODE_NAME"
     done
 }
@@ -332,10 +416,10 @@ CNI_INSTALL() {
 
     WAIT_NS_PODS kube-system
     if [ $BAD_PODS -ne 0 ]; then
-	for BAD_POD_NAME in $BAD_PODS_NAME; do
-	    echo "bad pod: kubectl delete pod -n kube-system $BAD_POD_NAME"
-	    kubectl delete pod -n kube-system $BAD_POD_NAME
-	done
+        for BAD_POD_NAME in $BAD_PODS_NAME; do
+            echo "bad pod: kubectl delete pod -n kube-system $BAD_POD_NAME"
+            kubectl delete pod -n kube-system $BAD_POD_NAME
+        done
     fi
     WAIT_NS_PODS kube-system
 }
@@ -468,7 +552,7 @@ INSTALL_PRISMACLOUD() {
     NFS_CHECK=/var/nfs/general/MOUNTED_from_NODE_worker
 
     while !  ls -altrh ${NFS_CHECK}* 2>/dev/null ; do
-	echo "Waiting for worker nodes to mount NFS share ... ${NFS_CHECK}*"
+        echo "Waiting for worker nodes to mount NFS share ... ${NFS_CHECK}*"
         let LOOP=LOOP+1; sleep 30; [ $LOOP -ge $MAX_LOOPS ] && die "Failed waiting for $WORKER_NODE_NAME to mount NFS share"
     done
     ls -altr ${NFS_CHECK}* | SECTION_LOG
@@ -557,7 +641,7 @@ INSTALL_KUBERNETES() {
             SECTION CNI_INSTALL
             SECTION KUBEADM_JOIN
             SECTION KUBECTL_VERSION
-	    SECTION KUBE_RECORD_POD_STARTUP_EVENTS
+            SECTION KUBE_RECORD_POD_STARTUP_EVENTS
         ;;
         "rancher")
             SECTION RANCHER_INIT
@@ -578,8 +662,8 @@ CONFIGURE_NFS() {
 
     case $NODE_TYPE in
         master)
-	    mkdir -p /var/nfs/general /nfs
-	    chown nobody:nogroup /var/nfs/general
+            mkdir -p /var/nfs/general /nfs
+            chown nobody:nogroup /var/nfs/general
 
             # for WIP in $WORKER_PRIVATE_IPS; do
             for WORKER in $(seq $NUM_WORKERS); do
@@ -596,27 +680,28 @@ CONFIGURE_NFS() {
             #done | tee -a /etc/exports
 
             systemctl restart nfs-kernel-server
+            exportfs -a
             ln -s /var/nfs/general /nfs/
 
-	    date >> $NFS_CHECK_MASTER
+            date >> $NFS_CHECK_MASTER
             df -h     /var/nfs/general | SECTION_LOG
             ls -altrh /var/nfs/general | SECTION_LOG
             ;;
         *)
-	    mkdir -p /nfs/general
+            mkdir -p /nfs/general
 
-	    mount master:/var/nfs/general /nfs/general
+            mount master:/var/nfs/general /nfs/general
             MAX_LOOPS=10; LOOP=0;
-	    while [ ! -f $NFS_CHECK_MASTER ] ; do
-	        echo "Waiting for master node to initialize NFS share ...  $NFS_CHECK_MASTER"
+            while [ ! -f $NFS_CHECK_MASTER ] ; do
+                echo "Waiting for master node to initialize NFS share ...  $NFS_CHECK_MASTER"
                 let LOOP=LOOP+1; sleep 30; [ $LOOP -ge $MAX_LOOPS ] && die "Failed waiting to mount share"
-	        mount master:/var/nfs/general /nfs/general
+                mount master:/var/nfs/general /nfs/general
             done
 
-	    date >> /nfs/general/MOUNTED_from_NODE_$(hostname).txt
+            date >> /nfs/general/MOUNTED_from_NODE_$(hostname).txt
             df -h | grep /nfs/     | SECTION_LOG
             ls -alrh /nfs/general/ | SECTION_LOG
-	    ;;
+            ;;
     esac
 }
 
@@ -640,11 +725,11 @@ WAIT_NS_PODS() {
         kubectl get pods -n $NS --no-headers | grep -v Running | SECTION_LOG
         BAD_PODS=$(kubectl get pods -n $NS --no-headers | grep -v Running | wc -l)
 
-	# Show status of none-Running Pods:
-	BAD_PODS_NAME=$(kubectl get pods -n $NS --no-headers | grep -v Running | awk '{ print $1; }')
-	for BAD_POD_NAME in $BAD_PODS_NAME; do
+        # Show status of none-Running Pods:
+        BAD_PODS_NAME=$(kubectl get pods -n $NS --no-headers | grep -v Running | awk '{ print $1; }')
+        for BAD_POD_NAME in $BAD_PODS_NAME; do
             kubectl describe pod -n $BAD_POD_NAME | grep -A 10 Events:
-	done
+        done
     done
     BAD_PODS=$(kubectl get pods -n $NS --no-headers | grep -v Running | wc -l)
 }
@@ -658,17 +743,17 @@ FINISH() {
 
     kubectl get pods -A --no-headers | grep -v Running
     kubectl get pods -A --no-headers | grep Evicted &&
-	    die "Error - some evicted Pods"
+            die "Error - some evicted Pods"
 
     #kubectl get pods -A -o json | jq '.items[] | select(.status.reason!=null)'
     #kubectl get pods -A -o json | jq '.items[] | select(.status.reason!=null)'  | grep Evicted &&
-	    #die "Error - some evicted Pods"
+            #die "Error - some evicted Pods"
     #BAD_PODS=$(kubectl get pods -A -o json | jq '.items[] | select(.status.reason!=null)' | wc -l)
 
     BAD_PODS=$(kubectl get pods -A --no-headers | grep -v Running | wc -l)
     MAX_LOOPS=20; LOOP=0;
     while [ $BAD_PODS -ne 0 ]; do
-	echo "Waiting for remaining Pods to be running" | SECTION_LOG
+        echo "Waiting for remaining Pods to be running" | SECTION_LOG
         let LOOP=LOOP+1; sleep 12; [ $LOOP -ge $MAX_LOOPS ] && die "Failed waiting for remaining Pods"
 
         #kubectl get pods -A -o json | jq '.items[] | select(.status.reason!=null)'
@@ -676,11 +761,11 @@ FINISH() {
         kubectl get pods -A --no-headers | grep -v Running | SECTION_LOG
         BAD_PODS=$(kubectl get pods -A --no-headers | grep -v Running | wc -l)
 
-	# Show status of none-Running Pods:
-	BAD_PODS_NS_AND_NAME=$(kubectl get pods -A --no-headers | grep -v Running | awk '{ print $1, $2; }')
-	for BAD_POD_NS_AND_NAME in $BAD_PODS_NS_AND_NAME; do
+        # Show status of none-Running Pods:
+        BAD_PODS_NS_AND_NAME=$(kubectl get pods -A --no-headers | grep -v Running | awk '{ print $1, $2; }')
+        for BAD_POD_NS_AND_NAME in $BAD_PODS_NS_AND_NAME; do
             kubectl describe pod -n $BAD_POD_NS_AND_NAME | grep -A 10 Events:
-	done
+        done
     done
 
     scp worker1:/tmp/SECTION.log /tmp/SECTION.log.worker1
@@ -710,10 +795,10 @@ WAIT_POD_RUNNING() {
 
     MAX_LOOPS=10; LOOP=0;
     while [ $BAD_PODS -ne 0 ]; do
-	echo "Waiting for Pods [$POD_SPEC] to be Running" | SECTION_LOG
+        echo "Waiting for Pods [$POD_SPEC] to be Running" | SECTION_LOG
 
-	let _MOD=${LOOP}%3; [ $_MOD -eq 0 ] &&
-            kubectl describe pods $POD_SPEC 2>/dev/null |& grep -A 20 ^Events:
+        let _MOD=${LOOP}%3; [ $_MOD -eq 0 ] &&
+        kubectl describe pods $POD_SPEC 2>/dev/null |& grep -A 20 ^Events:
         let LOOP=LOOP+1; sleep 12; [ $LOOP -ge $MAX_LOOP ] && die "Failed waiting for Pods [$POD_SPEC]"
 
         #kubectl get pods -A -o json | jq '.items[] | select(.status.reason!=null)'
@@ -730,11 +815,10 @@ safe_apt_get() {
     local _MAX_LOOP=12
     while [ $RET -ne 0 ]; do
         for lock in /var/lib/dpkg/lock*; do
-          echo "lsof $lock:"
-          lsof $lock
-      done
+            echo "lsof $lock:"; lsof $lock
+        done
 
-      sleep 10
+        sleep 10
         let _MAX_LOOP=_MAX_LOOP-1
         [ $_MAX_LOOP -le 0 ] && { echo "Failed apt-get $* ... continuing"; return 1; }
         apt-get $*; RET=$?
