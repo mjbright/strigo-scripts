@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 
+# Check syntax using:
+#   python3 -m py_compile get_strigo_info.py
+
 import os, sys
 import requests, json
 import urllib.request
