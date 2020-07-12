@@ -27,7 +27,7 @@ RCFILE=$1
 #VARS="CLASSID ORG_ID API_KEY OWNER_ID_OR_EMAIL PRISMA_PCC_ACCESS PRISMA_PCC_LICENSE REGISTER_URL"
 VARS="CLASSID ORG_ID API_KEY OWNER_ID_OR_EMAIL REGISTER_URL"
 
-USE_SED1() {
+USE_SED1_MISSING_GIT_COMMIT() {
     CMD="sed"
     for VAR in $VARS; do
         eval VAL=\$$VAR
@@ -53,7 +53,11 @@ USE_SED2() {
     cat <(sed '/__VARSFILE_RC__/,$d' < $IP_TEMPLATE) | wc -l
     wc -l $RCFILE
     # NO END RC BEG: cat <(sed '1,/__VARSFILE_RC__/d' < $IP_TEMPLATE) $RCFILE <(sed '/__VARSFILE_RC__/,$d' < $IP_TEMPLATE) >> $OP_PRIVATE
-    cat <(sed '/__VARSFILE_RC__/,$d' < $IP_TEMPLATE) $RCFILE <(sed '1,/__VARSFILE_RC__/d' < $IP_TEMPLATE) >> $OP_PRIVATE
+    cat \
+        <(sed '/__VARSFILE_RC__/,$d' < $IP_TEMPLATE) \
+	<(echo export GIT_COMMIT="$(git log --format='%H' -n 1)") \
+        $RCFILE \
+        <(sed '1,/__VARSFILE_RC__/d' < $IP_TEMPLATE) >> $OP_PRIVATE
     wc -l $OP_PRIVATE
     echo "Press <enter>"
     read
