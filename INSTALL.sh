@@ -719,6 +719,25 @@ WAIT_POD_RUNNING() {
     done
 }
 
+# Safer version of apt-get when locking is blocking us:
+safe_apt_get() {
+    apt-get $*; RET=$?
+
+    local _MAX_LOOP=12
+    while [ $RET -ne 0 ]; do
+        for lock in /var/lib/dpkg/lock*; do
+          echo "lsof $lock:"
+          lsof $lock
+      done
+
+      sleep 10
+        let _MAX_LOOP=_MAX_LOOP-1
+        [ $_MAX_LOOP -le 0 ] && { echo "Failed apt-get $* ... continuing"; return 1; }
+        apt-get $*; RET=$?
+    done
+    return 0
+}
+
 ## Main START ---------------------------------------------------------------------------
 
 TIMER_START
@@ -759,12 +778,12 @@ SECTION START_DOCKER_plus
 if [ $NODE_IDX -eq 0 ] ; then
     [ $CONFIGURE_NFS   -ne 0 ]        && APT_INSTALL_PACKAGES+=" nfs-kernel-server"
 
-    #apt-get update && apt-get install -y $APT_INSTALL_PACKAGES
-    #apt-get update  && apt-get upgrade -y $APT_INSTALL_PACKAGES
-    #apt-get update  && apt-get upgrade -y && apt-get install -y $APT_INSTALL_PACKAGES
-    apt-get update
-    apt-get upgrade -y
-    apt-get install -y $APT_INSTALL_PACKAGES
+    #safe_apt_get update && safe_apt_get install -y $APT_INSTALL_PACKAGES
+    #safe_apt_get update  && safe_apt_get upgrade -y $APT_INSTALL_PACKAGES
+    #safe_apt_get update  && safe_apt_get upgrade -y && safe_apt_get install -y $APT_INSTALL_PACKAGES
+    safe_apt_get update
+    safe_apt_get upgrade -y
+    safe_apt_get install -y $APT_INSTALL_PACKAGES
 
     SECTION CONFIG_NODES_ACCESS
     [ $INSTALL_KUBERNETES -ne 0 ]     && SECTION INSTALL_KUBERNETES
@@ -782,12 +801,12 @@ else
 
     [ $CONFIGURE_NFS   -ne 0 ]        && APT_INSTALL_PACKAGES+=" nfs-common"
 
-    #apt-get update && apt-get install -y $APT_INSTALL_PACKAGES
-    #apt-get update  && apt-get upgrade -y $APT_INSTALL_PACKAGES
-    #apt-get update  && apt-get upgrade -y && apt-get install -y $APT_INSTALL_PACKAGES
-    apt-get update
-    apt-get upgrade -y
-    apt-get install -y $APT_INSTALL_PACKAGES
+    #safe_apt_get update && safe_apt_get install -y $APT_INSTALL_PACKAGES
+    #safe_apt_get update  && safe_apt_get upgrade -y $APT_INSTALL_PACKAGES
+    #safe_apt_get update  && safe_apt_get upgrade -y && safe_apt_get install -y $APT_INSTALL_PACKAGES
+    safe_apt_get update
+    safe_apt_get upgrade -y
+    safe_apt_get install -y $APT_INSTALL_PACKAGES
 
     while [ ! -f /tmp/NODE_NAME ]; do sleep 5; done
     #NODE_NAME=$(cat /tmp/NODE_NAME)
