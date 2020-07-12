@@ -143,6 +143,11 @@ def getMyEventField( owner_id_or_email, field='id', status='live', multiple=Fals
                     if workspaceDetails[0] != None:
                         if VERBOSE: print(ev[field])
                         return ev[field]
+
+    if field == 'id':
+        if len(fields) == 0:
+            die("Failed to find myevent")
+
     return fields
 
 def getEvent( eventId ):
@@ -187,10 +192,18 @@ def getMyWorkSpaceDetails( eventId ):
         url = f"https://app.strigo.io/api/v1/events/{eventId}/workspaces/{workspaceId}/resources"
         workspace = getJson(url)
         if VERBOSE: print(f"workspace={workspace}")
+
         for lab_inst in workspace['data']:
             lab_instance_id=lab_inst['id']
+            public_ip='MISSING'
+            if 'public_ip' in lab_inst:
+                public_ip=lab_inst['public_ip']
+
+            if not 'private_ip' in lab_inst:
+                if VERBOSE: print(f"lab_id={lab_instance_id} private_ip=MISSING public_ip={public_ip}")
+                continue
+
             private_ip=lab_inst['private_ip']
-            public_ip=lab_inst['public_ip']
             if VERBOSE: print(f"lab_id={lab_instance_id} private_ip=${private_ip} public_ip={public_ip}")
 
             workspacePrivateIps.append(private_ip)
@@ -256,8 +269,15 @@ def showWorkspaceDetail(ws_data, format='default', ssh_key=None):
     for lab_inst in workspace['data']:
         inst_no+=1
         lab_instance_id=lab_inst['id']
+        public_ip='MISSING'
+        if 'public_ip' in lab_inst:
+            public_ip=lab_inst['public_ip']
+
+        if not 'private_ip' in lab_inst:
+            if VERBOSE: print(f"lab_id={lab_instance_id} private_ip=MISSING public_ip={public_ip}")
+            continue
+
         private_ip=lab_inst['private_ip']
-        public_ip=lab_inst['public_ip']
         #if VERBOSE: print(f"lab_id={lab_instance_id} private_ip=${private_ip} public_ip={public_ip}")
 
         if format == 'ssh_config':
