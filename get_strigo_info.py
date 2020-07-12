@@ -185,7 +185,7 @@ def getMyWorkSpaceDetails( eventId ):
         if VERBOSE: print(f"ownerId={owner_id} owner_email={owner_email}")
 
         url = f"https://app.strigo.io/api/v1/events/{eventId}/workspaces/{workspaceId}/resources"
-        workspace = requests.get(url, headers=headers).json()
+        workspace = getJson(url)
         if VERBOSE: print(f"workspace={workspace}")
         for lab_inst in workspace['data']:
             lab_instance_id=lab_inst['id']
