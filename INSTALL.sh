@@ -853,7 +853,7 @@ SET_MISSING_DEFAULTS
 ## -- Start install --------------------------------------------
 [ ! -z "$REGISTER_URL"    ] && SECTION REGISTER_INSTALL_START
 
-APT_INSTALL_PACKAGES="jq zip"
+APT_INSTALL_PACKAGES="jq zip tmux tmuxinator"
 
 [ $ANSIBLE_INSTALL -eq 1 ] && APT_INSTALL_PACKAGES+=" ansible ansible-lint ansible-tower-cli ansible-tower-cli-doc"
 
@@ -905,6 +905,9 @@ fi
 exp_PS1="export PS1='\u@'$(hostname)':\w\$ '"
 echo "$exp_PS1" >> /home/ubuntu/.bashrc
 echo "$exp_PS1" >> /root/.bashrc
+
+# Careful (can crash Strigo use of tmux!): so we can (also) use tmux/tmuxinator
+echo "export TMUX=''" >> /root/.bashrc
 
 [ ! -z "$REGISTER_URL" ] && SECTION REGISTER_INSTALL_END
 
