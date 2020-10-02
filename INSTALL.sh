@@ -115,6 +115,8 @@ SETUP_INSTALL_PROFILE() {
         INSTALL_FN_*)
             echo "INSTALL_PROFILE: invoking $INSTALL_PROFILE"
             $INSTALL_PROFILE;;
+        "")
+            echo "INSTALL_PROFILE: UNSET ... skipping";;
         *)
             echo "INSTALL_PROFILE: Bad $INSTALL_PROFILE ... skipping";;
     esac
