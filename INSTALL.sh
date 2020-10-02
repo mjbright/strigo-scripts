@@ -52,15 +52,43 @@ export NODE_NAME="unset"
     grep -q "worker1_pub" /etc/hosts || echo "#x.x.x.x worker1_pub"
 } >> /etc/hosts
 
-#K8S_INSTALLER="rancher"
-#RANCHER_RKE_RELEASE="v1.0.6"
+## Functions ----------------------------------------------------------------------------
 
-#BIN=/root/bin
-BIN=/usr/local/bin
+ERROR() {
+    echo "******************************************************"
+    echo "** ERROR: $*"
+    echo "******************************************************"
+}
 
-. $SCRIPT_DIR/INSTALL_PROFILES.fn.rc
+SECTION_LOG() {
+    if [ -z "$1" ]; then
+        tee -a ${SECTION_LOG}
+    else
+        echo "$*" >> ${SECTION_LOG}
+    fi
+}
 
-INIT_PROFILE_HISTORY() {
+SECTION() {
+    SECTION="$*"
+
+    echo;
+    { 
+        df -h / | grep -v ^Filesystem;
+        echo "== [$(date)] ========== $SECTION =================================";
+    } | SECTION_LOG
+    $*
+}
+
+die() {
+    ERROR $*
+    echo "$0: die - Installation failed" >&2 | SECTION_LOG
+    echo $* >&2
+    exit 1
+}
+
+# MISC FUNCTIONS ========================================================
+
+INIT_SHELL_PROFILE_HISTORY() {
     cat >> /root/.profile <<EOF
 export HOME=/root
 export PATH=~/bin:$PATH
@@ -79,7 +107,6 @@ EOF
 
     export HOME=/root
 }
-
 
 CREATE_USER() {
     local END_USER=$1; shift
@@ -120,38 +147,6 @@ SETUP_INSTALL_PROFILE() {
         *)
             echo "INSTALL_PROFILE: Bad $INSTALL_PROFILE ... skipping";;
     esac
-}
-
-ERROR() {
-    echo "******************************************************"
-    echo "** ERROR: $*"
-    echo "******************************************************"
-}
-
-SECTION_LOG() {
-    if [ -z "$1" ]; then
-        tee -a ${SECTION_LOG}
-    else
-        echo "$*" >> ${SECTION_LOG}
-    fi
-}
-
-SECTION() {
-    SECTION="$*"
-
-    echo;
-    { 
-        df -h / | grep -v ^Filesystem;
-        echo "== [$(date)] ========== $SECTION =================================";
-    } | SECTION_LOG
-    $*
-}
-
-die() {
-    ERROR $*
-    echo "$0: die - Installation failed" >&2 | SECTION_LOG
-    echo $* >&2
-    exit 1
 }
 
 # START: TIMER FUNCTIONS ================================================
@@ -875,9 +870,11 @@ safe_apt_get() {
 
 ## Main START ---------------------------------------------------------------------------
 
+. $SCRIPT_DIR/INSTALL_PROFILES.fn.rc
+
 TIMER_START
 
-INIT_PROFILE_HISTORY
+INIT_SHELL_PROFILE_HISTORY
 
 ## -- Get node/event info --------------------------------------
 SECTION_LOG "PUBLIC_IP=$PUBLIC_IP"
