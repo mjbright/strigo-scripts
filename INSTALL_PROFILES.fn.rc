@@ -65,6 +65,10 @@ INSTALL_FN_manual_K8S() {
     #export CHECK_COMPLETE_FN=CHECK_FN_K8S
 }
 
+GET_LFS_BITS() {
+    wget $LFS_LOGIN -O $LFS_TAR_URL $LFS_TAR_PATH
+}
+
 INSTALL_FN_LFS458_LFD459() {
     INSTALL_FN_manual_K8S
     export USERS="student:sudo"
@@ -73,8 +77,8 @@ INSTALL_FN_LFS458_LFD459() {
     export LFS_TAR_URL="https://training.linuxfoundation.org/cm/LFS458/${LFS_TAR}"
     export LFS_TAR_PATH="/tmp/${LFS_TAR}"
 
-    UNINSTALL_BITS
-    GET_BITS
+    UNINSTALL_DOCKER_K8S_BITS
+    GET_LFS_BITS
 }
 
 # Profile for Kubernetes+PrismaCloud Workshops with AUTOMATIC Kubernetes installation + MANUAL PrismaCloud installation:
