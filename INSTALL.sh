@@ -199,6 +199,7 @@ set_EVENT_WORKSPACE_NODES() {
         _NUM_NODES=""
     fi
 
+    # Strigo API data not available:
     if [ -z "$_NUM_NODES" ]; then
         export STRIGO_API_FAILURE=1
         echo "STRIGO_API data unavailable"
@@ -210,14 +211,14 @@ set_EVENT_WORKSPACE_NODES() {
             let NUM_WORKERS=NUM_NODES-1
             for NODE_NUM in $(seq 1 $NUM_WORKERS); do
                 echo;
-                NODE_NAME="worker${NODE_NUM}"
+                NODE_NAME="${WORKER_PREFIX}${NODE_NUM}"
                 sed 's/#.*//' /etc/hosts | grep -q " ${NODE_NAME}"     || die "Create private ip address entry for $NODE_NAME in /etc/hosts"
                 sed 's/#.*//' /etc/hosts | grep -q " ${NODE_NAME}_pub" || die "Create public  ip address entry for $NODE_NAME in /etc/hosts"
 
                 WORKER_PRIVATE_IP=$(sed -e 's/#.*//' -e 's/ *$//' /etc/hosts | grep " ${NODE_NAME}_pub" | awk '{ print $1; exit(0); }')
                 WORKER_PUBLIC_IP=$( sed -e 's/#.*//' -e 's/ *$//' /etc/hosts | grep " ${NODE_NAME}$"    | awk '{ print $1; exit(0); }')
 
-                #echo "Enter ip addresses of worker$NODE_NUM:"
+                #echo "Enter ip addresses of ${WORKER_PREFIX}$NODE_NUM:"
                 #read -p "Private IP (of form ${PRIVATE_IP%.[0-9]*}.0): " WORKER_PRIVATE_IP
                 [ ! -z "$WORKER_IPS" ] && WORKER_IPS="$WORKER_IPS,"
                 WORKER_IPS+="$WORKER_PRIVATE_IP"
@@ -232,7 +233,7 @@ set_EVENT_WORKSPACE_NODES() {
                 #read -p "Public  IP (MAY BE of form ${PUBLIC_IP%.[0-9]*}.0): " WORKER_PUBLIC_IP
                 WORKER_IPS+=",$WORKER_PUBLIC_IP"
 
-                echo "Will launch RERUN_INSTALL.sh on worker nodes in background (from CONFIG_NODES_ACCESS())" | SECTION_LOG
+                echo "Will launch RERUN_INSTALL.sh on worker nodes in background (from CONFIG_NODES_ACCESS_FROM_NODE0())" | SECTION_LOG
             done
         else
             echo "Running in non-interactive shell - exiting, you need to run $SCRIPT_DIR/RERUN_INSTALL.sh"
@@ -323,9 +324,11 @@ KUBEADM_POST_INIT() {
 # - Add entries to /etc/hosts
 # - Create .ssh/config entries
 #
-CONFIG_NODES_ACCESS() {
+CONFIG_NODES_ACCESS_FROM_NODE0() {
     echo "local hostname=$(hostname)" | SECTION_LOG
-    echo "$PRIVATE_IP master" | tee /tmp/hosts.add
+    ENTRY="$PRIVATE_IP master"
+    echo "Adding master entry: $ENTRY"
+    echo $ENTRY | tee /tmp/hosts.add
 
     WORKER_PRIVATE_IPS=""
     for WORKER in $(seq $NUM_WORKERS); do
@@ -337,8 +340,11 @@ CONFIG_NODES_ACCESS() {
         WORKER_PRIVATE_IP=${WORKER_IPS%,*};
         WORKER_PUBLIC_IP=${WORKER_IPS#*,};
         WORKER_PRIVATE_IPS+=" $WORKER_PRIVATE_IP"
-        WORKER_NODE_NAME="worker$WORKER"
-        echo "$WORKER_PRIVATE_IP $WORKER_NODE_NAME" | tee -a /tmp/hosts.add | SECTION_LOG
+        WORKER_NODE_NAME="${WORKER_PREFIX}$WORKER"
+        #echo "$WORKER_PRIVATE_IP $WORKER_NODE_NAME" | tee -a /tmp/hosts.add | SECTION_LOG
+        ENTRY="$WORKER_PRIVATE_IP $WORKER_NODE_NAME"
+        echo "Adding NODE$NODE_NUM entry: $ENTRY"
+        echo $ENTRY | tee -a /tmp/hosts.add | SECTION_LOG
 
         mkdir -p ~/.ssh
         mkdir -p /home/ubuntu/.ssh
@@ -382,14 +388,14 @@ CONFIG_NODES_ACCESS() {
     echo; echo "-- setting up /etc/hosts"
     cat /tmp/hosts.add >> /etc/hosts
     for WORKER in $(seq $NUM_WORKERS); do
-        WORKER_NODE_NAME="worker$WORKER"
+        WORKER_NODE_NAME="${WORKER_PREFIX}$WORKER"
         cat /tmp/hosts.add | ssh $WORKER_NODE_NAME "sudo tee -a /etc/hosts"
     done
 }
 
 EACH_NODE() {
     for WORKER in $(seq $NUM_WORKERS); do
-        WORKER_NODE_NAME="worker$WORKER"
+        WORKER_NODE_NAME="${WORKER_PREFIX}$WORKER"
         #eval ssh $WORKER_NODE_NAME $*
         #CMD="ssh $WORKER_NODE_NAME $*"
         eval "$*"
@@ -400,10 +406,10 @@ EACH_NODE() {
     done
 }
 
-# TO use once CONFIG_NODES_ACCESS() has run to setup ~/.ssh/config
+# TO use once CONFIG_NODES_ACCESS_FROM_NODE0() has run to setup ~/.ssh/config
 SSH_EACH_NODE() {
     for WORKER in $(seq $NUM_WORKERS); do
-        WORKER_NODE_NAME="worker$WORKER"
+        WORKER_NODE_NAME="${WORKER_PREFIX}$WORKER"
         #eval ssh $WORKER_NODE_NAME $*
         #CMD="ssh $WORKER_NODE_NAME $*"
         eval CMD="\"$*\""
@@ -424,7 +430,7 @@ KUBEADM_JOIN() {
     #SSH_EACH_NODE 'echo '$WORKER_NODE_NAME' > /tmp/NODE_NAME; hostname; ls -altr /tmp/NODE_NAME; cat /tmp/NODE_NAME'
 
     #for WORKER in $(seq $NUM_WORKERS); do
-    #    WORKER_NODE_NAME="worker$WORKER"
+    #    WORKER_NODE_NAME="${WORKER_PREFIX}$WORKER"
 #
     #    #CMD="$_SSH_IP sudo $JOIN_COMMAND --node-name $WORKER_NODE_NAME"
     #    CMD="ssh $WORKER_NODE_NAME sudo $JOIN_COMMAND --node-name $WORKER_NODE_NAME"
@@ -708,14 +714,14 @@ CONFIGURE_NFS() {
 
             # for WIP in $WORKER_PRIVATE_IPS; do
             for WORKER in $(seq $NUM_WORKERS); do
-                WORKER_NODE_NAME="worker$WORKER"
+                WORKER_NODE_NAME="${WORKER_PREFIX}$WORKER"
                 grep -q $WORKER_NODE_NAME /etc/exports || echo "/var/nfs/general    $WORKER_NODE_NAME(rw,sync,no_subtree_check)" | tee -a /etc/exports
             done
             #EACH_NODE echo '/var/nfs/general    $WORKER_NODE_NAME\(rw,sync,no_subtree_check\)' | tee -a /etc/exports
             grep '/var/nfs/general' /etc/exports | SECTION_LOG
             #for WORKER in $(seq $NUM_WORKERS); do
             #    #echo "/var/nfs/general    $WIP(rw,sync,no_subtree_check)"
-            #    WORKER_NODE_NAME="worker$WORKER"
+            #    WORKER_NODE_NAME="${WORKER_PREFIX}$WORKER"
             #    echo "/var/nfs/general    $WORKER_NODE_NAME(rw,sync,no_subtree_check)"
             #    #/home       $PIP(rw,sync,no_root_squash,no_subtree_check)
             #done | tee -a /etc/exports
@@ -914,7 +920,7 @@ if [ $NODE_IDX -eq 0 ] ; then
     safe_apt_get upgrade -y
     safe_apt_get install -y $APT_INSTALL_PACKAGES
 
-    SECTION CONFIG_NODES_ACCESS
+    SECTION CONFIG_NODES_ACCESS_FROM_NODE0
     [ $INSTALL_KUBERNETES -ne 0 ]     && SECTION INSTALL_KUBERNETES
     [ $INSTALL_KUBELAB -ne 0 ]        && CREATE_INSTALL_KUBELAB
     [ $INSTALL_KUBELAB -ne 0 ]        && SECTION INSTALL_KUBELAB
