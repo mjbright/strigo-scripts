@@ -28,7 +28,8 @@ def getJson(url):
 
     p_json=json.dumps(json_obj,  indent=2, sort_keys=True)
 
-    text=f"# URL: {url}\n{p_json}\n"
+    #text=f"# URL: {url}\n{p_json}\n" Don't include URL comment as it breaks the json !
+    text=p_json + "\n"
     writefile(filename, 'w', text)
     return json_obj
 
