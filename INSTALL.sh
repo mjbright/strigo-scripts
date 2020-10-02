@@ -182,6 +182,15 @@ TIMER_hhmmss() {
 
 # END: TIMER FUNCTIONS ================================================
 
+# UNINSTALL  FUNCTIONS ================================================
+
+UNINSTALL_DOCKER_K8S_BITS() {
+    apt-get remove -y kubeadm kubectl kubelet vim docker.io
+    rm -f /etc/apt/sources.list.d/kubernetes.list
+}
+
+# STRIGO     FUNCTIONS ================================================
+
 set_EVENT_WORKSPACE_NODES() {
     [ -z "$NUM_NODES" ] && die "Expected number of nodes is not set/exported from invoking user-data script"
 
