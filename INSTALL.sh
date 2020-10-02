@@ -2,6 +2,9 @@
 
 SCRIPT_DIR=$(dirname $0)
 
+CNI_YAMLS=${CNI_YAMLS:=https://docs.projectcalico.org/manifests/calico.yaml}
+POD_CIDR=${POD_CIDR:=192.168.0.0/16}
+
 WORKER_PREFIX=${WORKER_PREFIX:=worker}
 END_USER=${END_USER:=ubuntu}
 ANSIBLE_INSTALL=${ANSIBLE_INSTALL:=0}
@@ -10,28 +13,25 @@ REGISTER_URL=${REGISTER_URL:=__REGISTER_URL__}
 INSTALL_KUBELAB=${INSTALL_KUBELAB:=1}
 DOWNLOAD_PCC_TWISTLOCK=${DOWNLOAD_PCC_TWISTLOCK:=0}
 INSTALL_PCC_TWISTLOCK=${INSTALL_PCC_TWISTLOCK:=0}
+[ ! -z "$UNSET_API_FAILURE" ] && export SIMULATE_API_FAILURE=""
 
 # Detect if interactive, mark if Strigo API working:
 # Note: to test, export SIMULATE_API_FAILURE="1" in user-data
 export STRIGO_API_FAILURE=0
 
-[ ! -z "$UNSET_API_FAILURE" ] && export SIMULATE_API_FAILURE=""
+BIN=/usr/local/bin
 
 # Detect if interactive shell or not:
+INTERACTIVE_SHELL=0
+export DEBIAN_FRONTEND=noninteractive
 if [ -t 0 ];then
     # Interactive running on 0th (master) node
     INTERACTIVE_SHELL=1
     [ -z "$OVERRIDE_NODE_IDX" ] && export NODE_IDX=0
-else
-    INTERACTIVE_SHELL=0
 fi
 # Take defaults on apt-get commands: even in interactive mode
-export DEBIAN_FRONTEND=noninteractive
 
 sudo mv $(readlink -f /var/lib/cloud/instance) /root/tmp/instance/
-
-CNI_YAMLS="https://docs.projectcalico.org/manifests/calico.yaml"
-POD_CIDR="192.168.0.0/16"
 
 SECTION_LOG=/tmp/SECTION.log
 EVENT_LOG=/root/tmp/event.log
