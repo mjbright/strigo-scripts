@@ -23,13 +23,13 @@ BIN=/usr/local/bin
 
 # Detect if interactive shell or not:
 INTERACTIVE_SHELL=0
+# Take defaults on apt-get commands: even in interactive mode
 export DEBIAN_FRONTEND=noninteractive
 if [ -t 0 ];then
     # Interactive running on 0th (master) node
     INTERACTIVE_SHELL=1
     [ -z "$OVERRIDE_NODE_IDX" ] && export NODE_IDX=0
 fi
-# Take defaults on apt-get commands: even in interactive mode
 
 sudo mv $(readlink -f /var/lib/cloud/instance) /root/tmp/instance/
 
@@ -185,8 +185,10 @@ TIMER_hhmmss() {
 # UNINSTALL  FUNCTIONS ================================================
 
 UNINSTALL_DOCKER_K8S_BITS() {
+    set -x
     apt-get remove -y kubeadm kubectl kubelet vim docker.io
     rm -f /etc/apt/sources.list.d/kubernetes.list
+    set +x
 }
 
 # STRIGO     FUNCTIONS ================================================
@@ -861,7 +863,7 @@ WAIT_POD_RUNNING() {
 
 # Safer version of apt-get when locking is blocking us:
 safe_apt_get() {
-    apt-get $*; RET=$?
+    set -x; apt-get $*; RET=$?; set +x
 
     local _MAX_LOOP=12
     while [ $RET -ne 0 ]; do
@@ -872,7 +874,7 @@ safe_apt_get() {
         sleep 10
         let _MAX_LOOP=_MAX_LOOP-1
         [ $_MAX_LOOP -le 0 ] && { echo "Failed apt-get $* ... continuing"; return 1; }
-        apt-get $*; RET=$?
+        set -x; apt-get $*; RET=$?; set +x
     done
     return 0
 }
