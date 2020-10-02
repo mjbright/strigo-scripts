@@ -56,9 +56,8 @@ INSTALL_FN_manual_K8S() {
     # TO upgrade to latest set UPGRADE_KUBE_LATEST=1
     export INSTALL_KUBERNETES=0
     export UNTAINT_MASTER=0
-    #export K8S_RELEASE="v1.18.2"
     export UPGRADE_KUBE_LATEST=1
-    export K8S_INSTALLER="kubeadm"
+    export K8S_INSTALLER=${K8S_INSTALLER:=kubeadm}
     #export K8S_INSTALLER="rancher/rke"
 
     export USERS="ubuntu:sudo"

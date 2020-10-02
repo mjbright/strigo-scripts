@@ -914,8 +914,7 @@ INSTALL_GITHUB_REPOS $END_USER /home/$END_USER/src/github.com $GITHUB_REPOS
 
 APT_INSTALL_PACKAGES="jq zip"
 
-[ $ANSIBLE_INSTALL -eq 1 ] && APT_INSTALL_PACKAGES+=" ansible ansible-lint ansible-tower-cli ansible-tower-cli-doc"
-
+[ $ANSIBLE_INSTALL     -eq 1 ] && APT_INSTALL_PACKAGES+=" ansible ansible-lint ansible-tower-cli ansible-tower-cli-doc"
 [ $UPGRADE_KUBE_LATEST -eq 1 ] && APT_INSTALL_PACKAGES+=" kubeadm kubelet kubectl"
 
 SECTION START_DOCKER_plus
