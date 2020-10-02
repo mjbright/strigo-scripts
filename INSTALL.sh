@@ -80,6 +80,36 @@ EOF
     export HOME=/root
 }
 
+
+CREATE_USER() {
+    local END_USER=$1; shift
+
+    adduser $END_USER --disabled-password --gecos "Student $END_USER,,,"
+    cp -a /home/ubuntu/.ssh/ /home/$END_USER/
+    ls -al /home/$END_USER/.ssh/
+    chown -R $END_USER:$END_USER /home/$END_USER/.ssh/
+    ls -al /home/$END_USER/.ssh/
+    echo "$END_USER ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/95-student-user
+}
+
+INSTALL_GITHUB_REPOS() {
+    local END_USER=$1; shift
+    local DIR=$1; shift
+
+    [ -z "$1" ] && { echo "INSTALL_GITHUB_REPOS: No github repos to install"; return 0; }
+
+    echo "INSTALL_GITHUB_REPOS: github repos to install - $*"
+    mkdir -p $DIR
+
+    for REPO in $*; do
+        NEWDIR=$(echo $REPO | sed 's/\//./g')
+
+        set -x; git clone https://github.com/$REPO $DIR/$NEWDIR; set +x
+    done
+
+    chown -R $END_USER:$END_USER $DIR/$NEWDIR
+}
+
 SETUP_INSTALL_PROFILE() {
     case $INSTALL_PROFILE in
         INSTALL_FN_*)
