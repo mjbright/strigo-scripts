@@ -4,6 +4,8 @@ DIR=$(dirname $0)
 
 SSH_INIT_KEYS="-o StrictHostKeyChecking=no"
 
+USER="ubuntu"
+
 ## -- usage: ----------------------------------------------------
 
 # > ./get_strigo_info.sh nuaware_pcc_vars.rc -E
@@ -57,6 +59,7 @@ which ec2metadata >/dev/null 2>&1 && {
 }
 
 # Allow to specify public or private ip to identify workspace (when running outside of EC2):
+[ "$1" = "--user" ]       && { shift; export USER="$1"; shift; }
 [ "$1" = "--private-ip" ] && { shift; export PRIVATE_IP="$1"; shift; }
 [ "$1" = "--public-ip"  ] && { shift; export PUBLIC_IP="$1";  shift; }
 
@@ -113,11 +116,9 @@ if [ "$1" = "-ssh" ]; then
 	    echo "workspace$WORKSPACE: ${IP}"
 
 	    if [ -z "$1" ]; then
-                set -x;
-	        ssh $SSH_INIT_KEYS -qt -i $SSH_KEY ubuntu@$IP uptime
+                set -x; ssh $SSH_INIT_KEYS -qt -i $SSH_KEY ${USER}@$IP uptime; set +x
 	    else
-                set -x;
-	        ssh $SSH_INIT_KEYS -qt -i $SSH_KEY ubuntu@$IP "$*"
+                set -x; ssh $SSH_INIT_KEYS -qt -i $SSH_KEY ${USER}@$IP "$*"; set +x
 	    fi
 	}
         #echo "LINE: $IP_INFO"
