@@ -77,6 +77,10 @@ INSTALL_FN_LFS458_LFD459() {
     export LFS_TAR_PATH="/tmp/${LFS_TAR}"
 
     UNINSTALL_DOCKER_K8S_BITS
+    echo "Changing APT_INSTALL_PACKAGES from $APT_INSTALL_PACKAGES"
+    APT_INSTALL_PACKAGES=$(echo $APT_INSTALL_PACKAGES | sed 's?\bdocker.io\b??g')
+    APT_INSTALL_PACKAGES=$(echo $APT_INSTALL_PACKAGES | sed 's?\bkube[a-z]*[a-z]\b??g')
+    echo "to       APT_INSTALL_PACKAGES from $APT_INSTALL_PACKAGES"
     GET_LFS_BITS
 }
 
