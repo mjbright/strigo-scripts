@@ -894,8 +894,12 @@ set_EVENT_WORKSPACE_NODES
 [ -z "$USER_EMAIL" ]        && die "USER_EMAIL is unset"
 
 ## -- Set install profile --------------------------------------
+
 SETUP_INSTALL_PROFILE
 SET_MISSING_DEFAULTS
+
+CREATE_USER $END_USER
+INSTALL_GITHUB_REPOS $END_USER /home/$END_USER/src/github.com $GITHUB_REPOS
 
 ## -- Start install --------------------------------------------
 [ ! -z "$REGISTER_URL"    ] && SECTION REGISTER_INSTALL_START
