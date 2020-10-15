@@ -327,7 +327,7 @@ CONFIG_NODES_ACCESS_FROM_NODE0() {
     NODE_PRIVATE_IPS=""
     for NODE_NUM in $(seq 1 $NUM_NODES); do
         #XXX ??? let NODE_NUM=NUM_MASTERS+WORKER-1
-        #let NODE_NUM=NODE_NUM-1
+        let NODE_NUM=NODE_NUM-1
 
         [ $STRIGO_API_FAILURE -eq 0 ] && NODE_IPS=$($SCRIPT_DIR/get_strigo_info.py -ips $NODE_NUM)
         [ -z "$NODE_IPS" ] && die "[STRIGO_API_FAILURE=$STRIGO_API_FAILURE] Failed to get NODE_IPS"
@@ -336,11 +336,12 @@ CONFIG_NODES_ACCESS_FROM_NODE0() {
         NODE_PUBLIC_IP=${NODE_IPS#*,};
         NODE_PRIVATE_IPS+=" $NODE_PRIVATE_IP"
 	if [ $NODE_NUM -le $NUM_MASTERS ]; then
+            let MASTER_NODE_NUM=NODE_NUM+1
             NODE_NAME="master$NODE_NUM"
-	    [ $NODE_NUM -eq 0 ] && NODE_NAME="master"
+	    [ $NODE_NUM -eq 1 ] && NODE_NAME="master"
 	else
-            let WORKER_NODE_NUM=NODE_NUM-NUM_MASTERS
-            NODE_NAME="${WORKER_PREFIX}$NODE_NUM"
+            let WORKER_NODE_NUM=NODE_NUM-NUM_MASTERS+1
+            NODE_NAME="${WORKER_PREFIX}$WORKER_NODE_NUM"
 	fi
 
         #echo "$NODE_PRIVATE_IP $NODE_NAME" | tee -a /tmp/hosts.add | SECTION_LOG
