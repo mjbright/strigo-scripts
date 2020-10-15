@@ -338,7 +338,7 @@ CONFIG_NODES_ACCESS_FROM_NODE0() {
 	if [ $NODE_NUM -lt $NUM_MASTERS ]; then
             let MASTER_NODE_NUM=NODE_NUM+1
             NODE_NAME="master$MASTER_NODE_NUM"
-	    [ $NODE_NUM -eq 1 ] && NODE_NAME="master"
+	    [ $MASTER_NODE_NUM -eq 1 ] && NODE_NAME="master"
 	else
             let WORKER_NODE_NUM=NODE_NUM-NUM_MASTERS+1
             NODE_NAME="${WORKER_PREFIX}$WORKER_NODE_NUM"
