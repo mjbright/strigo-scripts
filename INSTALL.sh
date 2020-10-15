@@ -320,9 +320,9 @@ KUBEADM_POST_INIT() {
 #
 CONFIG_NODES_ACCESS_FROM_NODE0() {
     echo "local hostname=$(hostname)" | SECTION_LOG
-    ENTRY="$PRIVATE_IP master"
-    echo "Adding master entry: $ENTRY"
-    echo $ENTRY | tee /tmp/hosts.add
+    # ENTRY="$PRIVATE_IP master"
+    # echo "Adding master entry: $ENTRY"
+    # echo $ENTRY | tee /tmp/hosts.add
 
     NODE_PRIVATE_IPS=""
     for NODE_NUM in $(seq 1 $NUM_NODES); do
@@ -335,10 +335,10 @@ CONFIG_NODES_ACCESS_FROM_NODE0() {
         NODE_PRIVATE_IP=${NODE_IPS%,*};
         NODE_PUBLIC_IP=${NODE_IPS#*,};
         NODE_PRIVATE_IPS+=" $NODE_PRIVATE_IP"
-	if [ $NODE_NUM -le $NUM_MASTERS ]; then
+	if [ $NODE_NUM -lt $NUM_MASTERS ]; then
             let MASTER_NODE_NUM=NODE_NUM+1
             NODE_NAME="master$NODE_NUM"
-	    [ $NODE_NUM -eq 1 ] && NODE_NAME="master"
+	    [ $NODE_NUM -eq 0 ] && NODE_NAME="master"
 	else
             let WORKER_NODE_NUM=NODE_NUM-NUM_MASTERS+1
             NODE_NAME="${WORKER_PREFIX}$WORKER_NODE_NUM"
