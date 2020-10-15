@@ -49,8 +49,6 @@ export NODE_NAME="unset"
 {
     grep -q $PRIVATE_IP   /etc/hosts || echo "$PRIVATE_IP THIS_NODE"
     grep -q $PUBLIC_IP    /etc/hosts || echo "$PUBLIC_IP THIS_NODE_pub"
-    #grep -q "worker1"     /etc/hosts || echo "#x.x.x.x worker1"
-    #grep -q "worker1_pub" /etc/hosts || echo "#x.x.x.x worker1_pub"
 } >> /etc/hosts
 
 ## Functions ----------------------------------------------------------------------------
@@ -327,9 +325,9 @@ CONFIG_NODES_ACCESS_FROM_NODE0() {
     echo $ENTRY | tee /tmp/hosts.add
 
     NODE_PRIVATE_IPS=""
-    for NODE_NUM in $(seq $NUM_NODES); do
+    for NODE_NUM in $(seq 2 $NUM_NODES); do
         #XXX ??? let NODE_NUM=NUM_MASTERS+WORKER-1
-        let NODE_NUM=NODE_NUM-1
+        #let NODE_NUM=NODE_NUM-1
 
         [ $STRIGO_API_FAILURE -eq 0 ] && NODE_IPS=$($SCRIPT_DIR/get_strigo_info.py -ips $NODE_NUM)
         [ -z "$NODE_IPS" ] && die "[STRIGO_API_FAILURE=$STRIGO_API_FAILURE] Failed to get NODE_IPS"
@@ -338,10 +336,10 @@ CONFIG_NODES_ACCESS_FROM_NODE0() {
         NODE_PUBLIC_IP=${NODE_IPS#*,};
         NODE_PRIVATE_IPS+=" $NODE_PRIVATE_IP"
 	if [ $NODE_NUM -lt $NUM_MASTERS ]; then
-            NODE_NAME="master$NODE"
+            NODE_NAME="master$NODE_NUM"
 	else
             let WORKER_NODE_NUM=NODE-NUM_MASTERS
-            NODE_NAME="${WORKER_PREFIX}$NODE"
+            NODE_NAME="${WORKER_PREFIX}$NODE_NUM"
 	fi
 
         #echo "$NODE_PRIVATE_IP $NODE_NAME" | tee -a /tmp/hosts.add | SECTION_LOG
