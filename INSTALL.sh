@@ -336,8 +336,8 @@ CONFIG_NODES_ACCESS_FROM_NODE0() {
         NODE_PUBLIC_IP=${NODE_IPS#*,};
         NODE_PRIVATE_IPS+=" $NODE_PRIVATE_IP"
 	if [ $NODE_NUM -lt $NUM_MASTERS ]; then
-            let MASTER_NODE_NUM=NODE_NUM+2
-            NODE_NAME="master$NODE_NUM"
+            let MASTER_NODE_NUM=NODE_NUM+1
+            NODE_NAME="master$MASTER_NODE_NUM"
 	    [ $NODE_NUM -eq 1 ] && NODE_NAME="master"
 	else
             let WORKER_NODE_NUM=NODE_NUM-NUM_MASTERS+1
