@@ -7,6 +7,7 @@ POD_CIDR=${POD_CIDR:=192.168.0.0/16}
 
 WORKER_PREFIX=${WORKER_PREFIX:=worker}
 END_USER=${END_USER:=ubuntu}
+REF_USER=${REF_USER:=ubuntu} # Copy .ssh from here
 ANSIBLE_INSTALL=${ANSIBLE_INSTALL:=0}
 PRISMA_PCC_ACCESS=${PRISMA_PCC_ACCESS:=__PRISMA_ACCESS_KEY__}
 REGISTER_URL=${REGISTER_URL:=__REGISTER_URL__}
@@ -112,8 +113,8 @@ CREATE_USER() {
     local END_USER=$1; shift
 
     adduser $END_USER --disabled-password --gecos "Student $END_USER,,,"
-    cp -a /home/$END_USER/.ssh/ /home/$END_USER/
-    ls -al /home/$END_USER/.ssh/
+    cp -a /home/$REF_USER/.ssh/ /home/$END_USER/
+    ls -al /home/$REF_USER/.ssh/
     chown -R $END_USER:$END_USER /home/$END_USER/.ssh/
     ls -al /home/$END_USER/.ssh/
     echo "$END_USER ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/95-student-user
