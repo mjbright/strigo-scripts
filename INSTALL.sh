@@ -421,11 +421,11 @@ SSH_EACH_WORKER_NODE() {
 }
 
 KUBEADM_JOIN() {
-    JOIN_COMMAND=$(kubeadm token create --print-join-command)" --node-name $WORKER_NODE_NAME"
+    JOIN_COMMAND=$(kubeadm token create --print-join-command))
 
     echo; echo "-- performing join command on worker nodes"
 
-    SSH_EACH_WORKER_NODE 'sudo $JOIN_COMMAND'
+    SSH_EACH_WORKER_NODE 'sudo $JOIN_COMMAND --node-name $WORKER_NODE_NAME'
     SSH_EACH_WORKER_NODE 'echo '$WORKER_NODE_NAME' > /tmp/NODE_NAME; cat /tmp/NODE_NAME' | SECTION_LOG
 
     kubectl get nodes | SECTION_LOG
