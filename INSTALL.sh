@@ -325,7 +325,7 @@ CONFIG_NODES_ACCESS_FROM_NODE0() {
     echo $ENTRY | tee /tmp/hosts.add
 
     NODE_PRIVATE_IPS=""
-    for NODE_NUM in $(seq 2 $NUM_NODES); do
+    for NODE_NUM in $(seq 1 $NUM_NODES); do
         #XXX ??? let NODE_NUM=NUM_MASTERS+WORKER-1
         #let NODE_NUM=NODE_NUM-1
 
@@ -335,10 +335,11 @@ CONFIG_NODES_ACCESS_FROM_NODE0() {
         NODE_PRIVATE_IP=${NODE_IPS%,*};
         NODE_PUBLIC_IP=${NODE_IPS#*,};
         NODE_PRIVATE_IPS+=" $NODE_PRIVATE_IP"
-	if [ $NODE_NUM -lt $NUM_MASTERS ]; then
+	if [ $NODE_NUM -le $NUM_MASTERS ]; then
             NODE_NAME="master$NODE_NUM"
+	    [ $NODE_NUM -eq 0 ] && NODE_NAME="master"
 	else
-            let WORKER_NODE_NUM=NODE-NUM_MASTERS
+            let WORKER_NODE_NUM=NODE_NUM-NUM_MASTERS
             NODE_NAME="${WORKER_PREFIX}$NODE_NUM"
 	fi
 
@@ -360,7 +361,7 @@ CONFIG_NODES_ACCESS_FROM_NODE0() {
             echo "    IdentityFile ~/.ssh/id_rsa"
         } | tee -a /home/$END_USER/.ssh/config | sed 's?~?/root?' | tee -a ~/.ssh/config
 
-        echo "NODE[$NODE]=NODE[$NODE_NUM] $NODE_NAME NODE_PRIVATE_IP=$NODE_PRIVATE_IP NODE_PUBLIC_IP=$NODE_PUBLIC_IP"
+        echo "NODE[$NODE_NUM] $NODE_NAME NODE_PRIVATE_IP=$NODE_PRIVATE_IP NODE_PUBLIC_IP=$NODE_PUBLIC_IP"
 
         _SSH_IP="sudo -u $END_USER ssh -o StrictHostKeyChecking=no $NODE_PRIVATE_IP"
         while ! $_SSH_IP uptime; do sleep 2; echo "Waiting for successful $NODE_NAME ssh conection ..."; done
@@ -388,7 +389,7 @@ CONFIG_NODES_ACCESS_FROM_NODE0() {
 
     echo; echo "-- setting up /etc/hosts"
     cat /tmp/hosts.add >> /etc/hosts
-    for NODE in $(seq $NUM_NODES); do
+    for NODE in $(seq 2 $NUM_NODES); do
 	if [ $NODE_NUM -lt $NUM_MASTERS ]; then
             NODE_NAME="master$NODE"
 	else
