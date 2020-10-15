@@ -99,11 +99,11 @@ export HOME=/root
 export PATH=~/bin:$PATH
 EOF
 
-    #echo 'watch -n 2 "kubectl get nodes; echo; kubectl get ns; echo; kubectl -n kubelab -o wide get cm,pods"' >> /home/ubuntu/.bash_history
+    #echo 'watch -n 2 "kubectl get nodes; echo; kubectl get ns; echo; kubectl -n kubelab -o wide get cm,pods"' >> /home/$END_USER/.bash_history
     #echo 'watch -n 2 "kubectl get nodes; echo; kubectl get ns; echo; kubectl -n kubelab -o wide get cm,pods"' >> /root/.bash_history
     echo '. /root/.jupyter.profile; cd; echo HOME=$HOME' >> /root/.bash_history
-    echo 'kubectl get nodes' >> /home/ubuntu/.bash_history
-    echo 'tail -100f /tmp/SECTION.log' >> /home/ubuntu/.bash_history
+    echo 'kubectl get nodes' >> /home/$END_USER/.bash_history
+    echo 'tail -100f /tmp/SECTION.log' >> /home/$END_USER/.bash_history
 
     export HOME=/root
 }
@@ -112,7 +112,7 @@ CREATE_USER() {
     local END_USER=$1; shift
 
     adduser $END_USER --disabled-password --gecos "Student $END_USER,,,"
-    cp -a /home/ubuntu/.ssh/ /home/$END_USER/
+    cp -a /home/$END_USER/.ssh/ /home/$END_USER/
     ls -al /home/$END_USER/.ssh/
     chown -R $END_USER:$END_USER /home/$END_USER/.ssh/
     ls -al /home/$END_USER/.ssh/
@@ -279,10 +279,10 @@ START_DOCKER_plus() {
     docker ps
 
     groupadd docker
-    usermod -aG docker ubuntu
-    #{ echo "ubuntu: docker ps"; sudo -u ubuntu docker ps; } | SECTION_LOG
+    usermod -aG docker $END_USER
+    #{ echo "$END_USER: docker ps"; sudo -u $END_USER docker ps; } | SECTION_LOG
     docker version -f "Docker Version Client={{.Client.Version}} Server={{.Server.Version}}" | SECTION_LOG
-    echo "ubuntu: docker version"; sudo docker version
+    echo "$END_USER: docker version"; sudo docker version
     # newgrp docker # In shell allow immediate joining of group / use of docker
 }
 
@@ -353,29 +353,29 @@ CONFIG_NODES_ACCESS_FROM_NODE0() {
         echo $ENTRY | tee -a /tmp/hosts.add | SECTION_LOG
 
         mkdir -p ~/.ssh
-        mkdir -p /home/ubuntu/.ssh
-        touch /home/ubuntu/.ssh/config
-        cp -a /home/ubuntu/.ssh/id_rsa /root/.ssh/
-        chown ubuntu:ubuntu /home/ubuntu/.ssh/config
+        mkdir -p /home/$END_USER/.ssh
+        touch /home/$END_USER/.ssh/config
+        cp -a /home/$END_USER/.ssh/id_rsa /root/.ssh/
+        chown $END_USER:$END_USER /home/$END_USER/.ssh/config
         {
             echo ""
             echo "Host $WORKER_NODE_NAME"
-            echo "    User     ubuntu"
+            echo "    User     $END_USER"
             echo "    Hostname $WORKER_PRIVATE_IP"
             echo "    IdentityFile ~/.ssh/id_rsa"
-        } | tee -a /home/ubuntu/.ssh/config | sed 's?~?/root?' | tee -a ~/.ssh/config
+        } | tee -a /home/$END_USER/.ssh/config | sed 's?~?/root?' | tee -a ~/.ssh/config
 
         echo "WORKER[$WORKER]=NODE[$NODE_NUM] $WORKER_NODE_NAME WORKER_PRIVATE_IP=$WORKER_PRIVATE_IP WORKER_PUBLIC_IP=$WORKER_PUBLIC_IP"
 
-        _SSH_IP="sudo -u ubuntu ssh -o StrictHostKeyChecking=no $WORKER_PRIVATE_IP"
+        _SSH_IP="sudo -u $END_USER ssh -o StrictHostKeyChecking=no $WORKER_PRIVATE_IP"
         while ! $_SSH_IP uptime; do sleep 2; echo "Waiting for successful $WORKER_NODE_NAME ssh conection ..."; done
 
-        _SSH_ROOT_IP="ssh -l ubuntu -o StrictHostKeyChecking=no $WORKER_PRIVATE_IP"
+        _SSH_ROOT_IP="ssh -l $END_USER -o StrictHostKeyChecking=no $WORKER_PRIVATE_IP"
         $_SSH_ROOT_IP uptime
 
         {
-            echo "From ubuntu to ubuntu@$WORKER_NODE_NAME: hostname=$($_SSH_IP      hostname)";
-            echo "From   root to ubuntu@$WORKER_NODE_NAME: hostname=$($_SSH_ROOT_IP hostname)";
+            echo "From $END_USER to $END_USER@$WORKER_NODE_NAME: hostname=$($_SSH_IP      hostname)";
+            echo "From   root to $END_USER@$WORKER_NODE_NAME: hostname=$($_SSH_ROOT_IP hostname)";
         } | SECTION_LOG
         $_SSH_ROOT_IP sudo hostnamectl set-hostname $WORKER_NODE_NAME
 
@@ -486,15 +486,15 @@ SETUP_KUBECONFIG() {
     echo "root: kubectl get nodes:"
     kubectl get nodes
 
-    mkdir -p /home/ubuntu/.kube
-    cp -a $ADMIN_KUBECONFIG /home/ubuntu/.kube/config
-    chown -R ubuntu:ubuntu /home/ubuntu/.kube
+    mkdir -p /home/$END_USER/.kube
+    cp -a $ADMIN_KUBECONFIG /home/$END_USER/.kube/config
+    chown -R $END_USER:$END_USER /home/$END_USER/.kube
 
-    echo "ubuntu: kubectl get nodes:"
-    #sudo -u ubuntu KUBECONFIG=/home/ubuntu/.kube/config kubectl get nodes
-    sudo -u ubuntu HOME=/home/ubuntu kubectl get nodes
+    echo "$END_USER: kubectl get nodes:"
+    #sudo -u $END_USER KUBECONFIG=/home/$END_USER/.kube/config kubectl get nodes
+    sudo -u $END_USER HOME=/home/$END_USER kubectl get nodes
 
-    ls -altr /root/.kube/config /home/ubuntu/.kube/config | SECTION_LOG
+    ls -altr /root/.kube/config /home/$END_USER/.kube/config | SECTION_LOG
 }
 
 KUBECTL_VERSION() {
@@ -551,12 +551,12 @@ git clone https://github.com/mjbright/kubelab /root/github.com/kubelab
 
 export KUBECONFIG=/etc/kubernetes/admin.conf
 
-sed -e '/user: kubernetes-admin/a \ \ \ \ namespace: default' < /home/ubuntu/.kube/config  > /home/ubuntu/.kube/config.kubelab
-chown ubuntu:ubuntu /home/ubuntu/.kube/config.kubelab
+sed -e '/user: kubernetes-admin/a \ \ \ \ namespace: default' < /home/$END_USER/.kube/config  > /home/$END_USER/.kube/config.kubelab
+chown $END_USER:$END_USER /home/$END_USER/.kube/config.kubelab
 
 # Mount new kubeconfig as a ConfigMap/file:
 kubectl create ns kubelab
-kubectl -n kubelab create configmap kube-configmap --from-file=/home/ubuntu/.kube/config.kubelab
+kubectl -n kubelab create configmap kube-configmap --from-file=/home/$END_USER/.kube/config.kubelab
 
 kubectl create -f /root/github.com/kubelab/kubelab.yaml
 
@@ -961,7 +961,7 @@ fi
 
 #echo "export PS1='\u@\h:\w\$'"
 exp_PS1="export PS1='\u@'$(hostname)':\w\$ '"
-echo "$exp_PS1" >> /home/ubuntu/.bashrc
+echo "$exp_PS1" >> /home/$END_USER/.bashrc
 echo "$exp_PS1" >> /root/.bashrc
 
 [ ! -z "$REGISTER_URL" ] && SECTION REGISTER_INSTALL_END
