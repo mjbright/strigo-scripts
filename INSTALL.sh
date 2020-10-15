@@ -346,6 +346,7 @@ CONFIG_NODES_ACCESS_FROM_NODE0() {
 
         #echo "$NODE_PRIVATE_IP $NODE_NAME" | tee -a /tmp/hosts.add | SECTION_LOG
         ENTRY="$NODE_PRIVATE_IP $NODE_NAME"
+	[ $NODE_NUM -eq 0 ] && ENTRY+=" k8smaster"
         echo "Adding NODE$NODE_NUM entry: $ENTRY"
         echo $ENTRY | tee -a /tmp/hosts.add | SECTION_LOG
 
