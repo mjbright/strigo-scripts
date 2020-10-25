@@ -2,27 +2,37 @@
 
 SCRIPT_DIR=$(dirname $0)
 
+CNI_YAMLS=${CNI_YAMLS:=https://docs.projectcalico.org/manifests/calico.yaml}
+POD_CIDR=${POD_CIDR:=192.168.0.0/16}
+
+WORKER_PREFIX=${WORKER_PREFIX:=worker}
+END_USER=${END_USER:=ubuntu}
+REF_USER=${REF_USER:=ubuntu} # Copy .ssh from here
+ANSIBLE_INSTALL=${ANSIBLE_INSTALL:=0}
+PRISMA_PCC_ACCESS=${PRISMA_PCC_ACCESS:=__PRISMA_ACCESS_KEY__}
+REGISTER_URL=${REGISTER_URL:=__REGISTER_URL__}
+INSTALL_KUBELAB=${INSTALL_KUBELAB:=1}
+DOWNLOAD_PCC_TWISTLOCK=${DOWNLOAD_PCC_TWISTLOCK:=0}
+INSTALL_PCC_TWISTLOCK=${INSTALL_PCC_TWISTLOCK:=0}
+[ ! -z "$UNSET_API_FAILURE" ] && export SIMULATE_API_FAILURE=""
+
 # Detect if interactive, mark if Strigo API working:
 # Note: to test, export SIMULATE_API_FAILURE="1" in user-data
 export STRIGO_API_FAILURE=0
 
-[ ! -z "$UNSET_API_FAILURE" ] && export SIMULATE_API_FAILURE=""
+BIN=/usr/local/bin
 
 # Detect if interactive shell or not:
+INTERACTIVE_SHELL=0
+# Take defaults on apt-get commands: even in interactive mode
+export DEBIAN_FRONTEND=noninteractive
 if [ -t 0 ];then
     # Interactive running on 0th (master) node
     INTERACTIVE_SHELL=1
     [ -z "$OVERRIDE_NODE_IDX" ] && export NODE_IDX=0
-else
-    INTERACTIVE_SHELL=0
 fi
-# Take defaults on apt-get commands: even in interactive mode
-export DEBIAN_FRONTEND=noninteractive
 
 sudo mv $(readlink -f /var/lib/cloud/instance) /root/tmp/instance/
-
-CNI_YAMLS="https://docs.projectcalico.org/manifests/calico.yaml"
-POD_CIDR="192.168.0.0/16"
 
 SECTION_LOG=/tmp/SECTION.log
 EVENT_LOG=/root/tmp/event.log
@@ -39,47 +49,9 @@ export NODE_NAME="unset"
 {
     grep -q $PRIVATE_IP   /etc/hosts || echo "$PRIVATE_IP THIS_NODE"
     grep -q $PUBLIC_IP    /etc/hosts || echo "$PUBLIC_IP THIS_NODE_pub"
-    grep -q "worker1"     /etc/hosts || echo "#x.x.x.x worker1"
-    grep -q "worker1_pub" /etc/hosts || echo "#x.x.x.x worker1_pub"
 } >> /etc/hosts
 
-#K8S_INSTALLER="rancher"
-#RANCHER_RKE_RELEASE="v1.0.6"
-
-#BIN=/root/bin
-BIN=/usr/local/bin
-
-. $SCRIPT_DIR/INSTALL_PROFILES.fn.rc
-
-INIT_PROFILE_HISTORY() {
-    cat >> /root/.profile <<EOF
-export HOME=/root
-export PATH=~/bin:$PATH
-EOF
-
-    cat > /root/.jupyter.profile <<EOF
-export HOME=/root
-export PATH=~/bin:$PATH
-EOF
-
-    #echo 'watch -n 2 "kubectl get nodes; echo; kubectl get ns; echo; kubectl -n kubelab -o wide get cm,pods"' >> /home/ubuntu/.bash_history
-    #echo 'watch -n 2 "kubectl get nodes; echo; kubectl get ns; echo; kubectl -n kubelab -o wide get cm,pods"' >> /root/.bash_history
-    echo '. /root/.jupyter.profile; cd; echo HOME=$HOME' >> /root/.bash_history
-    echo 'kubectl get nodes' >> /home/ubuntu/.bash_history
-    echo 'tail -100f /tmp/SECTION.log' >> /home/ubuntu/.bash_history
-
-    export HOME=/root
-}
-
-SETUP_INSTALL_PROFILE() {
-    case $INSTALL_PROFILE in
-        INSTALL_FN_*)
-            echo "INSTALL_PROFILE: invoking $INSTALL_PROFILE"
-            $INSTALL_PROFILE;;
-        *)
-            echo "INSTALL_PROFILE: Bad $INSTALL_PROFILE ... skipping";;
-    esac
-}
+## Functions ----------------------------------------------------------------------------
 
 ERROR() {
     echo "******************************************************"
@@ -111,6 +83,69 @@ die() {
     echo "$0: die - Installation failed" >&2 | SECTION_LOG
     echo $* >&2
     exit 1
+}
+
+# MISC FUNCTIONS ========================================================
+
+INIT_SHELL_PROFILE_HISTORY() {
+    cat >> /root/.profile <<EOF
+export HOME=/root
+export PATH=~/bin:$PATH
+EOF
+
+    cat > /root/.jupyter.profile <<EOF
+export HOME=/root
+export PATH=~/bin:$PATH
+EOF
+
+    #echo 'watch -n 2 "kubectl get nodes; echo; kubectl get ns; echo; kubectl -n kubelab -o wide get cm,pods"' >> /home/$END_USER/.bash_history
+    #echo 'watch -n 2 "kubectl get nodes; echo; kubectl get ns; echo; kubectl -n kubelab -o wide get cm,pods"' >> /root/.bash_history
+    echo '. /root/.jupyter.profile; cd; echo HOME=$HOME' >> /root/.bash_history
+    echo 'kubectl get nodes' >> /home/$END_USER/.bash_history
+    echo 'tail -100f /tmp/SECTION.log' >> /home/$END_USER/.bash_history
+
+    export HOME=/root
+}
+
+CREATE_USER() {
+    local END_USER=$1; shift
+
+    adduser $END_USER --disabled-password --gecos "Student $END_USER,,,"
+    cp -a /home/$REF_USER/.ssh/ /home/$END_USER/
+    ls -al /home/$REF_USER/.ssh/
+    chown -R $END_USER:$END_USER /home/$END_USER/.ssh/
+    ls -al /home/$END_USER/.ssh/
+    echo "$END_USER ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/95-student-user
+}
+
+INSTALL_GITHUB_REPOS() {
+    local END_USER=$1; shift
+    local DIR=$1; shift
+
+    [ -z "$1" ] && { echo "INSTALL_GITHUB_REPOS: No github repos to install"; return 0; }
+
+    echo "INSTALL_GITHUB_REPOS: github repos to install - $*"
+    mkdir -p $DIR
+
+    for REPO in $*; do
+        NEWDIR=$(echo $REPO | sed 's/\//./g')
+
+        set -x; git clone https://github.com/$REPO $DIR/$NEWDIR; set +x
+    done
+
+    chown -R $END_USER:$END_USER $DIR/$NEWDIR
+}
+
+SETUP_INSTALL_PROFILE() {
+    case $INSTALL_PROFILE in
+        INSTALL_FN_*)
+            echo "INSTALL_PROFILE: invoking $INSTALL_PROFILE"
+            $INSTALL_PROFILE;;
+        "")
+            echo "INSTALL_PROFILE: UNSET ... skipping";;
+        *)
+            echo "INSTALL_PROFILE: Bad $INSTALL_PROFILE ... skipping";;
+    esac
 }
 
 # START: TIMER FUNCTIONS ================================================
@@ -146,6 +181,17 @@ TIMER_hhmmss() {
 
 # END: TIMER FUNCTIONS ================================================
 
+# UNINSTALL  FUNCTIONS ================================================
+
+UNINSTALL_DOCKER_K8S_BITS() {
+    set -x
+    apt-get remove -y kubeadm kubectl kubelet vim docker.io
+    rm -f /etc/apt/sources.list.d/kubernetes.list
+    set +x
+}
+
+# STRIGO     FUNCTIONS ================================================
+
 set_EVENT_WORKSPACE_NODES() {
     [ -z "$NUM_NODES" ] && die "Expected number of nodes is not set/exported from invoking user-data script"
 
@@ -158,6 +204,7 @@ set_EVENT_WORKSPACE_NODES() {
         _NUM_NODES=""
     fi
 
+    # Strigo API data not available:
     if [ -z "$_NUM_NODES" ]; then
         export STRIGO_API_FAILURE=1
         echo "STRIGO_API data unavailable"
@@ -169,29 +216,18 @@ set_EVENT_WORKSPACE_NODES() {
             let NUM_WORKERS=NUM_NODES-1
             for NODE_NUM in $(seq 1 $NUM_WORKERS); do
                 echo;
-                NODE_NAME="worker${NODE_NUM}"
+                NODE_NAME="${WORKER_PREFIX}${NODE_NUM}"
                 sed 's/#.*//' /etc/hosts | grep -q " ${NODE_NAME}"     || die "Create private ip address entry for $NODE_NAME in /etc/hosts"
                 sed 's/#.*//' /etc/hosts | grep -q " ${NODE_NAME}_pub" || die "Create public  ip address entry for $NODE_NAME in /etc/hosts"
 
                 WORKER_PRIVATE_IP=$(sed -e 's/#.*//' -e 's/ *$//' /etc/hosts | grep " ${NODE_NAME}_pub" | awk '{ print $1; exit(0); }')
                 WORKER_PUBLIC_IP=$( sed -e 's/#.*//' -e 's/ *$//' /etc/hosts | grep " ${NODE_NAME}$"    | awk '{ print $1; exit(0); }')
 
-                #echo "Enter ip addresses of worker$NODE_NUM:"
-                #read -p "Private IP (of form ${PRIVATE_IP%.[0-9]*}.0): " WORKER_PRIVATE_IP
                 [ ! -z "$WORKER_IPS" ] && WORKER_IPS="$WORKER_IPS,"
                 WORKER_IPS+="$WORKER_PRIVATE_IP"
-                #if [ "${PRIVATE_IP%.[0-9]*}.0" != "${WORKER_PRIVATE_IP%.[0-9]*}.0" ]; then
-                #    echo "Warning: ${PRIVATE_IP%.[0-9]*}.0 != ${WORKER_PRIVATE_IP%.[0-9]*}.0"
-                #    echo "Press <enter> to continue (or 'q' to quit)"
-                #    read _DUMMY
-                #    [ "$_DUMMY" = "q" ] && exit 1
-                #    [ "$_DUMMY" = "Q" ] && exit 1
-                #fi
-
-                #read -p "Public  IP (MAY BE of form ${PUBLIC_IP%.[0-9]*}.0): " WORKER_PUBLIC_IP
                 WORKER_IPS+=",$WORKER_PUBLIC_IP"
 
-                echo "Will launch RERUN_INSTALL.sh on worker nodes in background (from CONFIG_NODES_ACCESS())" | SECTION_LOG
+                echo "Will launch RERUN_INSTALL.sh on worker nodes in background (from CONFIG_NODES_ACCESS_FROM_NODE0())" | SECTION_LOG
             done
         else
             echo "Running in non-interactive shell - exiting, you need to run $SCRIPT_DIR/RERUN_INSTALL.sh"
@@ -231,10 +267,10 @@ START_DOCKER_plus() {
     docker ps
 
     groupadd docker
-    usermod -aG docker ubuntu
-    #{ echo "ubuntu: docker ps"; sudo -u ubuntu docker ps; } | SECTION_LOG
+    usermod -aG docker $END_USER
+    { echo "$END_USER: docker ps"; sudo -u $END_USER docker ps; } | SECTION_LOG
     docker version -f "Docker Version Client={{.Client.Version}} Server={{.Server.Version}}" | SECTION_LOG
-    echo "ubuntu: docker version"; sudo docker version
+    echo "root: docker version"; sudo docker version
     # newgrp docker # In shell allow immediate joining of group / use of docker
 }
 
@@ -282,56 +318,71 @@ KUBEADM_POST_INIT() {
 # - Add entries to /etc/hosts
 # - Create .ssh/config entries
 #
-CONFIG_NODES_ACCESS() {
+CONFIG_NODES_ACCESS_FROM_NODE0() {
     echo "local hostname=$(hostname)" | SECTION_LOG
-    echo "$PRIVATE_IP master" | tee /tmp/hosts.add
+    # ENTRY="$PRIVATE_IP master"
+    # echo "Adding master entry: $ENTRY"
+    # echo $ENTRY | tee /tmp/hosts.add
 
-    WORKER_PRIVATE_IPS=""
-    for WORKER in $(seq $NUM_WORKERS); do
-        let NODE_NUM=NUM_MASTERS+WORKER-1
+    NODE_PRIVATE_IPS=""
+    for NODE_NUM in $(seq 1 $NUM_NODES); do
+        #XXX ??? let NODE_NUM=NUM_MASTERS+WORKER-1
+        let NODE_NUM=NODE_NUM-1
 
-        [ $STRIGO_API_FAILURE -eq 0 ] && WORKER_IPS=$($SCRIPT_DIR/get_strigo_info.py -ips $NODE_NUM)
-        [ -z "$WORKER_IPS" ] && die "[STRIGO_API_FAILURE=$STRIGO_API_FAILURE] Failed to get WORKER_IPS"
+        [ $STRIGO_API_FAILURE -eq 0 ] && NODE_IPS=$($SCRIPT_DIR/get_strigo_info.py -ips $NODE_NUM)
+        [ -z "$NODE_IPS" ] && die "[STRIGO_API_FAILURE=$STRIGO_API_FAILURE] Failed to get NODE_IPS"
 
-        WORKER_PRIVATE_IP=${WORKER_IPS%,*};
-        WORKER_PUBLIC_IP=${WORKER_IPS#*,};
-        WORKER_PRIVATE_IPS+=" $WORKER_PRIVATE_IP"
-        WORKER_NODE_NAME="worker$WORKER"
-        echo "$WORKER_PRIVATE_IP $WORKER_NODE_NAME" | tee -a /tmp/hosts.add | SECTION_LOG
+        NODE_PRIVATE_IP=${NODE_IPS%,*};
+        NODE_PUBLIC_IP=${NODE_IPS#*,};
+        NODE_PRIVATE_IPS+=" $NODE_PRIVATE_IP"
+	if [ $NODE_NUM -lt $NUM_MASTERS ]; then
+            let MASTER_NODE_NUM=NODE_NUM+1
+            NODE_NAME="master$MASTER_NODE_NUM"
+	    [ $MASTER_NODE_NUM -eq 1 ] && NODE_NAME="master"
+	else
+            let WORKER_NODE_NUM=NODE_NUM-NUM_MASTERS+1
+            NODE_NAME="${WORKER_PREFIX}$WORKER_NODE_NUM"
+	fi
+
+        #echo "$NODE_PRIVATE_IP $NODE_NAME" | tee -a /tmp/hosts.add | SECTION_LOG
+        ENTRY="$NODE_PRIVATE_IP $NODE_NAME"
+	[ $NODE_NUM -eq 0 ] && ENTRY+=" k8smaster"
+        echo "Adding NODE$NODE_NUM entry: $ENTRY"
+        echo $ENTRY | tee -a /tmp/hosts.add | SECTION_LOG
 
         mkdir -p ~/.ssh
-        mkdir -p /home/ubuntu/.ssh
-        touch /home/ubuntu/.ssh/config
-        cp -a /home/ubuntu/.ssh/id_rsa /root/.ssh/
-        chown ubuntu:ubuntu /home/ubuntu/.ssh/config
+        mkdir -p /home/$END_USER/.ssh
+        touch /home/$END_USER/.ssh/config
+        cp -a /home/$END_USER/.ssh/id_rsa /root/.ssh/
+        chown $END_USER:$END_USER /home/$END_USER/.ssh/config
         {
             echo ""
-            echo "Host $WORKER_NODE_NAME"
-            echo "    User     ubuntu"
-            echo "    Hostname $WORKER_PRIVATE_IP"
+            echo "Host $NODE_NAME"
+            echo "    User     $END_USER"
+            echo "    Hostname $NODE_PRIVATE_IP"
             echo "    IdentityFile ~/.ssh/id_rsa"
-        } | tee -a /home/ubuntu/.ssh/config | sed 's?~?/root?' | tee -a ~/.ssh/config
+        } | tee -a /home/$END_USER/.ssh/config | sed 's?~?/root?' | tee -a ~/.ssh/config
 
-        echo "WORKER[$WORKER]=NODE[$NODE_NUM] $WORKER_NODE_NAME WORKER_PRIVATE_IP=$WORKER_PRIVATE_IP WORKER_PUBLIC_IP=$WORKER_PUBLIC_IP"
+        echo "NODE[$NODE_NUM] $NODE_NAME NODE_PRIVATE_IP=$NODE_PRIVATE_IP NODE_PUBLIC_IP=$NODE_PUBLIC_IP"
 
-        _SSH_IP="sudo -u ubuntu ssh -o StrictHostKeyChecking=no $WORKER_PRIVATE_IP"
-        while ! $_SSH_IP uptime; do sleep 2; echo "Waiting for successful $WORKER_NODE_NAME ssh conection ..."; done
+        _SSH_IP="sudo -u $END_USER ssh -o StrictHostKeyChecking=no $NODE_PRIVATE_IP"
+        while ! $_SSH_IP uptime; do sleep 2; echo "Waiting for successful $NODE_NAME ssh conection ..."; done
 
-        _SSH_ROOT_IP="ssh -l ubuntu -o StrictHostKeyChecking=no $WORKER_PRIVATE_IP"
+        _SSH_ROOT_IP="ssh -l $END_USER -o StrictHostKeyChecking=no $NODE_PRIVATE_IP"
         $_SSH_ROOT_IP uptime
 
         {
-            echo "From ubuntu to ubuntu@$WORKER_NODE_NAME: hostname=$($_SSH_IP      hostname)";
-            echo "From   root to ubuntu@$WORKER_NODE_NAME: hostname=$($_SSH_ROOT_IP hostname)";
+            echo "From $END_USER to $END_USER@$NODE_NAME: hostname=$($_SSH_IP      hostname)";
+            echo "From   root to $END_USER@$NODE_NAME: hostname=$($_SSH_ROOT_IP hostname)";
         } | SECTION_LOG
-        $_SSH_ROOT_IP sudo hostnamectl set-hostname $WORKER_NODE_NAME
+        $_SSH_ROOT_IP sudo hostnamectl set-hostname $NODE_NAME
 
         [ $STRIGO_API_FAILURE -eq 1 ] && {
-            echo "[STRIGO_API_FAILURE=$STRIGO_API_FAILURE] Launching RERUN_INSTALL.sh on $WORKER_NODE_NAME"
+            echo "[STRIGO_API_FAILURE=$STRIGO_API_FAILURE] Launching RERUN_INSTALL.sh on $NODE_NAME"
 
             # Setting NODE_IDX to NODE_NUM (so we know which worker node is running the script):
             # Unsetting STRIGO_API_FAILURE
-            RERUN_LOG=/tmp/RERUN_INSTALL_${WORKER_NODE_NAME}.log
+            RERUN_LOG=/tmp/RERUN_INSTALL_${NODE_NAME}.log
             CMD="$_SSH_ROOT_IP sudo UNSET_API_FAILURE=1 OVERRIDE_NODE_IDX=$NODE_NUM $SCRIPT_DIR/RERUN_INSTALL.sh"
             echo "-- $CMD >$RERUN_LOG 2>&1 &" | SECTION_LOG
             $CMD >$RERUN_LOG 2>&1 &
@@ -340,57 +391,43 @@ CONFIG_NODES_ACCESS() {
 
     echo; echo "-- setting up /etc/hosts"
     cat /tmp/hosts.add >> /etc/hosts
-    for WORKER in $(seq $NUM_WORKERS); do
-        WORKER_NODE_NAME="worker$WORKER"
-        cat /tmp/hosts.add | ssh $WORKER_NODE_NAME "sudo tee -a /etc/hosts"
+    for NODE in $(seq 2 $NUM_NODES); do
+	if [ $NODE_NUM -lt $NUM_MASTERS ]; then
+            NODE_NAME="master$NODE"
+	else
+            let WORKER_NODE_NUM=NODE-NUM_MASTERS
+            NODE_NAME="${WORKER_PREFIX}$NODE"
+	fi
+
+        cat /tmp/hosts.add | ssh $NODE_NAME "sudo tee -a /etc/hosts"
     done
 }
 
-EACH_NODE() {
+EACH_WORKER_NODE() {
     for WORKER in $(seq $NUM_WORKERS); do
-        WORKER_NODE_NAME="worker$WORKER"
-        #eval ssh $WORKER_NODE_NAME $*
-        #CMD="ssh $WORKER_NODE_NAME $*"
+        WORKER_NODE_NAME="${WORKER_PREFIX}$WORKER"
         eval "$*"
         eval CMD="\"$*\""
-        #ssh $WORKER_NODE_NAME "eval $CMD"
-        #ssh $WORKER_NODE_NAME "$CMD"
-        #eval $CMD
     done
 }
 
-# TO use once CONFIG_NODES_ACCESS() has run to setup ~/.ssh/config
-SSH_EACH_NODE() {
+# TO use once CONFIG_NODES_ACCESS_FROM_NODE0() has run to setup ~/.ssh/config
+SSH_EACH_WORKER_NODE() {
     for WORKER in $(seq $NUM_WORKERS); do
-        WORKER_NODE_NAME="worker$WORKER"
-        #eval ssh $WORKER_NODE_NAME $*
-        #CMD="ssh $WORKER_NODE_NAME $*"
+        WORKER_NODE_NAME="${WORKER_PREFIX}$WORKER"
         eval CMD="\"$*\""
-        #ssh $WORKER_NODE_NAME "eval $CMD"
         ssh $WORKER_NODE_NAME "$CMD"
-        #eval $CMD
     done
 }
 
 KUBEADM_JOIN() {
-    JOIN_COMMAND=$(kubeadm token create --print-join-command)" --node-name $WORKER_NODE_NAME"
+    JOIN_COMMAND=$(kubeadm token create --print-join-command))
 
     echo; echo "-- performing join command on worker nodes"
 
-    SSH_EACH_NODE 'sudo $JOIN_COMMAND'
-    SSH_EACH_NODE 'echo '$WORKER_NODE_NAME' > /tmp/NODE_NAME; cat /tmp/NODE_NAME' | SECTION_LOG
-    #SSH_EACH_NODE 'echo '$WORKER_NODE_NAME' > /tmp/NODE_NAME; hostname; ls -altr /tmp/NODE_NAME; cat /tmp/NODE_NAME' | SECTION_LOG
-    #SSH_EACH_NODE 'echo '$WORKER_NODE_NAME' > /tmp/NODE_NAME; hostname; ls -altr /tmp/NODE_NAME; cat /tmp/NODE_NAME'
+    SSH_EACH_WORKER_NODE 'sudo $JOIN_COMMAND --node-name $WORKER_NODE_NAME'
+    SSH_EACH_WORKER_NODE 'echo '$WORKER_NODE_NAME' > /tmp/NODE_NAME; cat /tmp/NODE_NAME' | SECTION_LOG
 
-    #for WORKER in $(seq $NUM_WORKERS); do
-    #    WORKER_NODE_NAME="worker$WORKER"
-#
-    #    #CMD="$_SSH_IP sudo $JOIN_COMMAND --node-name $WORKER_NODE_NAME"
-    #    CMD="ssh $WORKER_NODE_NAME sudo $JOIN_COMMAND --node-name $WORKER_NODE_NAME"
-    #    echo "-- $CMD" | SECTION_LOG
-    #    $CMD
-    #    echo $WORKER_NODE_NAME | ssh $WORKER_NODE_NAME tee /tmp/NODE_NAME
-    #done
     kubectl get nodes | SECTION_LOG
 
     MAX_LOOPS=10; LOOP=0;
@@ -433,15 +470,15 @@ SETUP_KUBECONFIG() {
     echo "root: kubectl get nodes:"
     kubectl get nodes
 
-    mkdir -p /home/ubuntu/.kube
-    cp -a $ADMIN_KUBECONFIG /home/ubuntu/.kube/config
-    chown -R ubuntu:ubuntu /home/ubuntu/.kube
+    mkdir -p /home/$END_USER/.kube
+    cp -a $ADMIN_KUBECONFIG /home/$END_USER/.kube/config
+    chown -R $END_USER:$END_USER /home/$END_USER/.kube
 
-    echo "ubuntu: kubectl get nodes:"
-    #sudo -u ubuntu KUBECONFIG=/home/ubuntu/.kube/config kubectl get nodes
-    sudo -u ubuntu HOME=/home/ubuntu kubectl get nodes
+    echo "$END_USER: kubectl get nodes:"
+    #sudo -u $END_USER KUBECONFIG=/home/$END_USER/.kube/config kubectl get nodes
+    sudo -u $END_USER HOME=/home/$END_USER kubectl get nodes
 
-    ls -altr /root/.kube/config /home/ubuntu/.kube/config | SECTION_LOG
+    ls -altr /root/.kube/config /home/$END_USER/.kube/config | SECTION_LOG
 }
 
 KUBECTL_VERSION() {
@@ -498,12 +535,12 @@ git clone https://github.com/mjbright/kubelab /root/github.com/kubelab
 
 export KUBECONFIG=/etc/kubernetes/admin.conf
 
-sed -e '/user: kubernetes-admin/a \ \ \ \ namespace: default' < /home/ubuntu/.kube/config  > /home/ubuntu/.kube/config.kubelab
-chown ubuntu:ubuntu /home/ubuntu/.kube/config.kubelab
+sed -e '/user: kubernetes-admin/a \ \ \ \ namespace: default' < /home/$END_USER/.kube/config  > /home/$END_USER/.kube/config.kubelab
+chown $END_USER:$END_USER /home/$END_USER/.kube/config.kubelab
 
 # Mount new kubeconfig as a ConfigMap/file:
 kubectl create ns kubelab
-kubectl -n kubelab create configmap kube-configmap --from-file=/home/ubuntu/.kube/config.kubelab
+kubectl -n kubelab create configmap kube-configmap --from-file=/home/$END_USER/.kube/config.kubelab
 
 kubectl create -f /root/github.com/kubelab/kubelab.yaml
 
@@ -667,14 +704,14 @@ CONFIGURE_NFS() {
 
             # for WIP in $WORKER_PRIVATE_IPS; do
             for WORKER in $(seq $NUM_WORKERS); do
-                WORKER_NODE_NAME="worker$WORKER"
+                WORKER_NODE_NAME="${WORKER_PREFIX}$WORKER"
                 grep -q $WORKER_NODE_NAME /etc/exports || echo "/var/nfs/general    $WORKER_NODE_NAME(rw,sync,no_subtree_check)" | tee -a /etc/exports
             done
-            #EACH_NODE echo '/var/nfs/general    $WORKER_NODE_NAME\(rw,sync,no_subtree_check\)' | tee -a /etc/exports
+            #EACH_WORKER_NODE echo '/var/nfs/general    $WORKER_NODE_NAME\(rw,sync,no_subtree_check\)' | tee -a /etc/exports
             grep '/var/nfs/general' /etc/exports | SECTION_LOG
             #for WORKER in $(seq $NUM_WORKERS); do
             #    #echo "/var/nfs/general    $WIP(rw,sync,no_subtree_check)"
-            #    WORKER_NODE_NAME="worker$WORKER"
+            #    WORKER_NODE_NAME="${WORKER_PREFIX}$WORKER"
             #    echo "/var/nfs/general    $WORKER_NODE_NAME(rw,sync,no_subtree_check)"
             #    #/home       $PIP(rw,sync,no_root_squash,no_subtree_check)
             #done | tee -a /etc/exports
@@ -739,7 +776,7 @@ FINISH() {
     SHOWCMD kubectl get ns      | SECTION_LOG
     SHOWCMD kubectl describe nodes > /tmp/nodes.describe.txt
 
-    SSH_EACH_NODE 'echo $(hostname; df -h / | grep -v ^Filesystem)' | SECTION_LOG
+    SSH_EACH_WORKER_NODE 'echo $(hostname; df -h / | grep -v ^Filesystem)' | SECTION_LOG
 
     kubectl get pods -A --no-headers | grep -v Running
     kubectl get pods -A --no-headers | grep Evicted &&
@@ -774,7 +811,7 @@ FINISH() {
       echo; echo "----"; kubectl get pods -n twistlock; kubectl get pods -n kubelab
       echo; echo "----"; echo "Connect to Console at [cat /tmp/PCC.console.url]:"; cat /tmp/PCC.console.url
       df -h / | grep -v ^Filesystem;
-      SSH_EACH_NODE 'echo $(hostname; df -h / | grep -v ^Filesystem)' | SECTION_LOG
+      SSH_EACH_WORKER_NODE 'echo $(hostname; df -h / | grep -v ^Filesystem)' | SECTION_LOG
       wc -l /tmp/SECTION.log*;
 
       kubectl describe nodes | grep -iE "^(  name:|taint:)" | SECTION_LOG
@@ -810,7 +847,7 @@ WAIT_POD_RUNNING() {
 
 # Safer version of apt-get when locking is blocking us:
 safe_apt_get() {
-    apt-get $*; RET=$?
+    set -x; apt-get $*; RET=$?; set +x
 
     local _MAX_LOOP=12
     while [ $RET -ne 0 ]; do
@@ -821,16 +858,18 @@ safe_apt_get() {
         sleep 10
         let _MAX_LOOP=_MAX_LOOP-1
         [ $_MAX_LOOP -le 0 ] && { echo "Failed apt-get $* ... continuing"; return 1; }
-        apt-get $*; RET=$?
+        set -x; apt-get $*; RET=$?; set +x
     done
     return 0
 }
 
 ## Main START ---------------------------------------------------------------------------
 
+. $SCRIPT_DIR/INSTALL_PROFILES.fn.rc
+
 TIMER_START
 
-INIT_PROFILE_HISTORY
+INIT_SHELL_PROFILE_HISTORY
 
 ## -- Get node/event info --------------------------------------
 SECTION_LOG "PUBLIC_IP=$PUBLIC_IP"
@@ -847,54 +886,56 @@ set_EVENT_WORKSPACE_NODES
 [ -z "$USER_EMAIL" ]        && die "USER_EMAIL is unset"
 
 ## -- Set install profile --------------------------------------
+
 SETUP_INSTALL_PROFILE
 SET_MISSING_DEFAULTS
+
+CREATE_USER $END_USER
+INSTALL_GITHUB_REPOS $END_USER /home/$END_USER/src/github.com $GITHUB_REPOS
 
 ## -- Start install --------------------------------------------
 [ ! -z "$REGISTER_URL"    ] && SECTION REGISTER_INSTALL_START
 
 APT_INSTALL_PACKAGES="jq zip tmux tmuxinator"
 
-[ $ANSIBLE_INSTALL -eq 1 ] && APT_INSTALL_PACKAGES+=" ansible ansible-lint ansible-tower-cli ansible-tower-cli-doc"
-
+[ $ANSIBLE_INSTALL     -eq 1 ] && APT_INSTALL_PACKAGES+=" ansible ansible-lint ansible-tower-cli ansible-tower-cli-doc"
 [ $UPGRADE_KUBE_LATEST -eq 1 ] && APT_INSTALL_PACKAGES+=" kubeadm kubelet kubectl"
 
 SECTION START_DOCKER_plus
 # SECTION GET_LAB_RESOURCES - CAREFUL THIS WILL EXPOSE YOUR API_KEY/ORG_ID
 
 # Perform all kubeadm operations from Master1:
+let NUM_WORKERS=NUM_NODES-NUM_MASTERS
+
 if [ $NODE_IDX -eq 0 ] ; then
     [ $CONFIGURE_NFS   -ne 0 ]        && APT_INSTALL_PACKAGES+=" nfs-kernel-server"
-
-    #safe_apt_get update && safe_apt_get install -y $APT_INSTALL_PACKAGES
-    #safe_apt_get update  && safe_apt_get upgrade -y $APT_INSTALL_PACKAGES
-    #safe_apt_get update  && safe_apt_get upgrade -y && safe_apt_get install -y $APT_INSTALL_PACKAGES
-    safe_apt_get update
-    safe_apt_get upgrade -y
-    safe_apt_get install -y $APT_INSTALL_PACKAGES
-
-    SECTION CONFIG_NODES_ACCESS
-    [ $INSTALL_KUBERNETES -ne 0 ]     && SECTION INSTALL_KUBERNETES
-    [ $INSTALL_KUBELAB -ne 0 ]        && CREATE_INSTALL_KUBELAB
-    [ $INSTALL_KUBELAB -ne 0 ]        && SECTION INSTALL_KUBELAB
-    [ $INSTALL_JUPYTER -ne 0 ]        && SECTION INSTALL_JUPYTER
-    [ $CONFIGURE_NFS   -ne 0 ]        && SECTION CONFIGURE_NFS master on $NODE_NAME
-    [ $DOWNLOAD_PRISMACLOUD -ne 0 ]   && SECTION DOWNLOAD_PRISMACLOUD
-    [ $INSTALL_PRISMACLOUD -ne 0 ]    && SECTION INSTALL_PRISMACLOUD
-    [ $INSTALL_TERRAFORM -ne 0 ]      && SECTION INSTALL_TERRAFORM
-    [ $INSTALL_HELM -ne 0 ]           && SECTION INSTALL_HELM
+    SECTION CONFIG_NODES_ACCESS_FROM_NODE0
 else
-    let NUM_WORKERS=NUM_NODES-NUM_MASTERS
-    [ $NUM_MASTERS -gt 1 ] && die "Not implemented NUM_MASTERS > 1"
-
     [ $CONFIGURE_NFS   -ne 0 ]        && APT_INSTALL_PACKAGES+=" nfs-common"
+fi
+safe_apt_get update
+safe_apt_get upgrade -y
+safe_apt_get install -y $APT_INSTALL_PACKAGES
 
-    #safe_apt_get update && safe_apt_get install -y $APT_INSTALL_PACKAGES
-    #safe_apt_get update  && safe_apt_get upgrade -y $APT_INSTALL_PACKAGES
-    #safe_apt_get update  && safe_apt_get upgrade -y && safe_apt_get install -y $APT_INSTALL_PACKAGES
-    safe_apt_get update
-    safe_apt_get upgrade -y
-    safe_apt_get install -y $APT_INSTALL_PACKAGES
+if [ $NODE_IDX -lt $NUM_MASTERS ] ; then
+
+    if [ $NODE_IDX -eq 0 ] ; then
+        [ $CONFIGURE_NFS   -ne 0 ]        && SECTION CONFIGURE_NFS master on $NODE_NAME
+        [ $INSTALL_KUBERNETES -ne 0 ]     && SECTION INSTALL_KUBERNETES
+        [ $INSTALL_KUBELAB -ne 0 ]        && CREATE_INSTALL_KUBELAB
+        [ $INSTALL_KUBELAB -ne 0 ]        && SECTION INSTALL_KUBELAB
+        [ $INSTALL_JUPYTER -ne 0 ]        && SECTION INSTALL_JUPYTER
+
+        [ $DOWNLOAD_PRISMACLOUD -ne 0 ]   && SECTION DOWNLOAD_PRISMACLOUD
+        [ $INSTALL_PRISMACLOUD -ne 0 ]    && SECTION INSTALL_PRISMACLOUD
+        [ $INSTALL_TERRAFORM -ne 0 ]      && SECTION INSTALL_TERRAFORM
+        [ $INSTALL_HELM -ne 0 ]           && SECTION INSTALL_HELM
+    else
+        while [ ! -f /tmp/NODE_NAME ]; do sleep 5; done
+        [ $CONFIGURE_NFS -ne 0 ]          && SECTION CONFIGURE_NFS master on $(hostname)
+    fi
+else
+    #[ $NUM_MASTERS -gt 1 ] && die "Not implemented NUM_MASTERS > 1" XXX??
 
     while [ ! -f /tmp/NODE_NAME ]; do sleep 5; done
     #NODE_NAME=$(cat /tmp/NODE_NAME)
@@ -903,7 +944,7 @@ fi
 
 #echo "export PS1='\u@\h:\w\$'"
 exp_PS1="export PS1='\u@'$(hostname)':\w\$ '"
-echo "$exp_PS1" >> /home/ubuntu/.bashrc
+echo "$exp_PS1" >> /home/$END_USER/.bashrc
 echo "$exp_PS1" >> /root/.bashrc
 
 # Careful (can crash Strigo use of tmux!): so we can (also) use tmux/tmuxinator

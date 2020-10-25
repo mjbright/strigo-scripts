@@ -28,7 +28,8 @@ def getJson(url):
 
     p_json=json.dumps(json_obj,  indent=2, sort_keys=True)
 
-    text=f"# URL: {url}\n{p_json}\n"
+    #text=f"# URL: {url}\n{p_json}\n" Don't include URL comment as it breaks the json !
+    text=p_json + "\n"
     writefile(filename, 'w', text)
     return json_obj
 
@@ -204,7 +205,7 @@ def getMyWorkSpaceDetails( eventId ):
                 continue
 
             private_ip=lab_inst['private_ip']
-            if VERBOSE: print(f"lab_id={lab_instance_id} private_ip=${private_ip} public_ip={public_ip}")
+            if VERBOSE: print(f"lab_id={lab_instance_id} private_ip={private_ip} public_ip={public_ip}")
 
             workspacePrivateIps.append(private_ip)
             workspacePublicIps.append(public_ip)
@@ -278,7 +279,7 @@ def showWorkspaceDetail(ws_data, format='default', ssh_key=None):
             continue
 
         private_ip=lab_inst['private_ip']
-        #if VERBOSE: print(f"lab_id={lab_instance_id} private_ip=${private_ip} public_ip={public_ip}")
+        #if VERBOSE: print(f"lab_id={lab_instance_id} private_ip={private_ip} public_ip={public_ip}")
 
         if format == 'ssh_config':
             w_owner_email=ws_data['owner']['email']
@@ -292,7 +293,7 @@ def showWorkspaceDetail(ws_data, format='default', ssh_key=None):
             #print(f"\nHost {host}\n  Hostname={public_ip}\n  User={user}\n  IdentityFile={ssh_key}")
             print(f"\nHost {host}\n  Hostname={public_ip}\n  User={user}")
         else:
-            print(f"  lab_id={lab_instance_id} private_ip=${private_ip} public_ip={public_ip}")
+            print(f"  lab_id={lab_instance_id} private_ip={private_ip} public_ip={public_ip}")
 
 
 eventId=None
