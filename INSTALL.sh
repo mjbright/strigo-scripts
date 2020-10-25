@@ -421,7 +421,7 @@ SSH_EACH_WORKER_NODE() {
 }
 
 KUBEADM_JOIN() {
-    JOIN_COMMAND=$(kubeadm token create --print-join-command))
+    JOIN_COMMAND=$(kubeadm token create --print-join-command)
 
     echo; echo "-- performing join command on worker nodes"
 
